@@ -1,3 +1,4 @@
+// backend/server.js
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -16,7 +17,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Test route
+// simple API health route
 app.get("/api", (req, res) => {
   res.json({ message: "📡 Backend is running!" });
 });
@@ -30,18 +31,20 @@ app.post("/api/login", verifyLogin, (req, res) => {
 console.log("📚 Book routes mounted at /api/books");
 app.use("/api/books", bookRoutes);
 
-// ✅ Serve frontend (for production)
+// Serve frontend built files in production
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Adjust this path if your frontend build dir differs
+// (for Vite the build output is usually frontend/dist)
 if (process.env.NODE_ENV === "production") {
-  const frontendPath = path.join(__dirname, "../client/build");
-  app.use(express.static(frontendPath));
+  const frontendDistPath = path.join(__dirname, "../frontend/dist");
+  app.use(express.static(frontendDistPath));
 
+  // IMPORTANT: use "/*" (not "*") to avoid path-to-regexp error
   app.get("/*", (req, res) => {
-    res.sendFile(path.resolve(__dirname, "../frontend/dist", "index.html"));
+    res.sendFile(path.resolve(frontendDistPath, "index.html"));
   });
-  
 }
 
 // Start server
