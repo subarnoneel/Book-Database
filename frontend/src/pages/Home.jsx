@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { fetchBooks, deleteBook } from "../services/api";
 import { useNavigate, useLocation } from "react-router-dom";
+import { fetchBooks, deleteBook, fetchGenres } from "../services/api";
+
 
 function Home() {
   const [books, setBooks] = useState([]);
@@ -13,6 +14,8 @@ function Home() {
   const [openBookId, setOpenBookId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [genres, setGenres] = useState([]);
+
 
   const loadBooks = async (page = currentPage) => {
     try {
@@ -21,6 +24,9 @@ function Home() {
       setBooks(data.books); // backend now sends { books, totalPages, currentPage }
       setTotalPages(data.totalPages);
       setCurrentPage(data.currentPage);
+      // Extract unique genres from fetched books
+      const uniqueGenres = [...new Set(data.books.map((book) => book.genre).filter(Boolean))];
+      setGenres(uniqueGenres);
     } catch (err) {
       console.error("Error fetching books:", err);
     }
@@ -30,6 +36,20 @@ function Home() {
   useEffect(() => {
     loadBooks(currentPage);
   }, [currentPage]);
+
+  useEffect(() => {
+    const loadGenres = async () => {
+      try {
+        const { data } = await fetchGenres();
+        setGenres(data);
+      } catch (err) {
+        console.error("Error fetching genres:", err);
+      }
+    };
+  
+    loadGenres();
+  }, []);
+  
   
 
   // Trigger reload if navigated back with state.refresh
@@ -97,11 +117,12 @@ function Home() {
           value={filterGenre}
           onChange={(e) => setFilterGenre(e.target.value)}
         >
-          <option value="">All Genres</option>
-          <option value="Fiction">Fiction</option>
-          <option value="Non-Fiction">Non-Fiction</option>
-          <option value="Sci-Fi">Sci-Fi</option>
-          <option value="Romance">Romance</option>
+        <option value="">All Genres</option>
+        {genres.map((genre) => (
+          <option key={genre} value={genre}>
+            {genre}
+          </option>
+        ))}
         </select>
 
         <button
