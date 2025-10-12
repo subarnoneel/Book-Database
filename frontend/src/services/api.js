@@ -1,15 +1,22 @@
 import axios from "axios";
 
-// Base URL of your backend (relative path so Vite proxy works)
+// ✅ Create one axios instance for all API calls
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "/api" // just /api, let proxy handle forwarding to port 5000
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api", // /api so Vite proxy handles it
 });
 
-// Books
-export const fetchBooks = (page = 1, limit = 5) => API.get(`/books?page=${page}&limit=${limit}`);          // GET all books
-export const addBook = (book) => API.post("/books", book); // POST new book
-export const updateBook = (id, book) => API.put(`/books/${id}`, book); // PUT update book
-export const deleteBook = (id) => API.delete(`/books/${id}`);          // DELETE book
+// ✅ Books
+export const fetchBooks = (page = 1, limit = 5) =>
+  API.get(`/books?page=${page}&limit=${limit}`);
 
-// Login
-export const login = (credentials) => API.post("/login", credentials); // POST login
+export const addBook = (book) => API.post("/books", book);
+
+export const updateBook = (id, book) => API.put(`/books/${id}`, book);
+
+export const deleteBook = (id) => API.delete(`/books/${id}`);
+
+// ✅ FIXED: use the same API instance instead of undefined variable
+export const fetchGenres = () => API.get("/books/genres");
+
+// ✅ Login
+export const login = (credentials) => API.post("/login", credentials);
