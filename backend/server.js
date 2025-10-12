@@ -1,11 +1,11 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import connectDB from "./utils/connectDB.js";
 import bookRoutes from "./routes/bookRoutes.js";
 import { verifyLogin } from "./middleware/authMiddleware.js";
-import path from "path";
-import { fileURLToPath } from "url";
 
 dotenv.config();
 connectDB();
@@ -17,16 +17,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// API routes
 app.use("/api/books", bookRoutes);
 app.post("/api/login", verifyLogin, (req, res) => {
   res.json({ message: "Login successful" });
 });
 
-// Serve frontend build
+// Serve frontend
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
-app.get('*', (req, res) => {
+// ✅ This is the correct wildcard route for Express 4
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
 });
 
