@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { updateBook, fetchBooks } from "../services/api";
+import { updateBook, fetchBookById } from "../services/api"; // ✅ use fetchBookById instead
 import { useNavigate, useParams } from "react-router-dom";
 
 function UpdateBook() {
@@ -9,9 +9,12 @@ function UpdateBook() {
 
   useEffect(() => {
     const loadBook = async () => {
-      const { data } = await fetchBooks();
-      const existingBook = data.find((b) => b._id === id);
-      if (existingBook) setBook(existingBook);
+      try {
+        const { data } = await fetchBookById(id);
+        setBook(data);
+      } catch (err) {
+        console.error("Error loading book:", err);
+      }
     };
     loadBook();
   }, [id]);
@@ -22,8 +25,12 @@ function UpdateBook() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await updateBook(id, book);
-    navigate("/");
+    try {
+      await updateBook(id, book);
+      navigate("/home", { state: { refresh: true } });
+    } catch (err) {
+      console.error("Error updating book:", err);
+    }
   };
 
   return (
