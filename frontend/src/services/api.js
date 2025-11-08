@@ -15,8 +15,10 @@ export const updateBook = (id, book) => API.put(`/books/${id}`, book);
 
 export const deleteBook = (id) => API.delete(`/books/${id}`);
 
-// ✅ FIXED: use the same API instance instead of undefined variable
 export const fetchGenres = () => API.get("/books/genres");
+
+// ✅ NEW: fetch a single book by its ID
+export const fetchBookById = (id) => API.get(`/books/${id}`);
 
 // ✅ Login
 export const login = (credentials) => API.post("/login", credentials);
