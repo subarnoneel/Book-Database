@@ -1,224 +1,243 @@
-import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { fetchBooks, deleteBook, fetchGenres } from "../services/api";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { deleteBook, fetchBooks, fetchGenres, getErrorMessage } from "../services/api";
 
+const PAGE_SIZE = 10;
+const SEARCH_DELAY_MS = 300;
+
+const COLUMNS = [
+  { field: "name", label: "Book Name" },
+  { field: "author", label: "Author" },
+  { field: "publisher", label: "Publisher" },
+  { field: "genre", label: "Genre" },
+];
 
 function Home() {
-  const [books, setBooks] = useState([]);
-  const [search, setSearch] = useState("");
-  const [filterGenre, setFilterGenre] = useState("");
-  const [sortField, setSortField] = useState(""); // "name" or "author"
-  const [sortOrder, setSortOrder] = useState("asc"); // "asc" or "desc"
   const navigate = useNavigate();
-  const location = useLocation();
-  const [openBookId, setOpenBookId] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const { logout } = useAuth();
+
+  // Search, filter, sort and page live in the URL so they survive going to Edit and back.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const q = searchParams.get("q") ?? "";
+  const genre = searchParams.get("genre") ?? "";
+  const sort = searchParams.get("sort") ?? "";
+  const order = searchParams.get("order") === "desc" ? "desc" : "asc";
+  const page = Math.max(1, Number.parseInt(searchParams.get("page"), 10) || 1);
+  // Passed to Add/Edit so they can return to this exact list view.
+  const listSearch = searchParams.toString() ? `?${searchParams}` : "";
+
+  const [searchInput, setSearchInput] = useState(q);
+  const [books, setBooks] = useState([]);
+  const [totalBooks, setTotalBooks] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [genres, setGenres] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
+  const updateParams = useCallback(
+    (changes, { replace = false } = {}) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(changes)) {
+            if (value === "" || value === undefined || value === null || (key === "page" && value === 1)) {
+              next.delete(key);
+            } else {
+              next.set(key, String(value));
+            }
+          }
+          return next;
+        },
+        { replace }
+      );
+    },
+    [setSearchParams]
+  );
 
-  const loadBooks = async (page = currentPage) => {
-    try {
-      const { data } = await fetchBooks(page, 5); // 5 books per page
-      console.log("Books fetched:", data);
-      setBooks(data.books); // backend now sends { books, totalPages, currentPage }
-      setTotalPages(data.totalPages);
-      setCurrentPage(data.currentPage);
-      // Extract unique genres from fetched books
-      const uniqueGenres = [...new Set(data.books.map((book) => book.genre).filter(Boolean))];
-      setGenres(uniqueGenres);
-    } catch (err) {
-      console.error("Error fetching books:", err);
-    }
-  };
-  
+  // Keep the search box in sync when the URL changes (e.g. browser back button).
+  useEffect(() => {
+    setSearchInput(q);
+  }, [q]);
+
+  // Debounce typing, then search the whole database from page 1.
+  useEffect(() => {
+    if (searchInput.trim() === q) return;
+    const timer = setTimeout(() => updateParams({ q: searchInput.trim(), page: 1 }, { replace: true }), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput, q, updateParams]);
 
   useEffect(() => {
-    loadBooks(currentPage);
-  }, [currentPage]);
+    let cancelled = false;
+    setLoading(true);
+    setError("");
 
-  useEffect(() => {
-    const loadGenres = async () => {
-      try {
-        const { data } = await fetchGenres();
-        setGenres(data);
-      } catch (err) {
-        console.error("Error fetching genres:", err);
-      }
+    fetchBooks({ q, genre, sort: sort || undefined, order: sort ? order : undefined, page, limit: PAGE_SIZE })
+      .then(({ data }) => {
+        if (cancelled) return;
+        // e.g. the last book on the last page was deleted: step back a page.
+        if (page > data.totalPages) {
+          updateParams({ page: data.totalPages }, { replace: true });
+          return;
+        }
+        setBooks(data.books);
+        setTotalBooks(data.totalBooks);
+        setTotalPages(data.totalPages);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(getErrorMessage(err, "Could not load books"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
     };
-  
-    loadGenres();
-  }, []);
-  
-  
+  }, [q, genre, sort, order, page, reloadKey, updateParams]);
 
-  // Trigger reload if navigated back with state.refresh
   useEffect(() => {
-    if (location.state && location.state.refresh) {
-      loadBooks();
-      navigate(location.pathname, { replace: true, state: {} }); // clear state
-    }
-  }, [location.state, navigate, location.pathname]);
+    fetchGenres()
+      .then(({ data }) => setGenres(data))
+      .catch(() => setGenres([]));
+  }, [reloadKey]);
 
-  const handleDelete = async (id) => {
-    if (window.confirm("Are you sure you want to delete this book?")) {
-      await deleteBook(id);
-      loadBooks();
+  const handleDelete = async (book) => {
+    if (!window.confirm(`Delete "${book.name}"?`)) return;
+    try {
+      await deleteBook(book._id);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      setError(getErrorMessage(err, "Could not delete the book"));
     }
   };
 
   const handleSort = (field) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    if (sort === field) {
+      updateParams({ order: order === "asc" ? "desc" : "asc", page: 1 });
     } else {
-      setSortField(field);
-      setSortOrder("asc");
+      updateParams({ sort: field, order: "asc", page: 1 });
     }
   };
 
-  const filteredBooks = Array.isArray(books)
-    ? books
-        .filter((book) => {
-          return (
-            (filterGenre ? book.genre === filterGenre : true) &&
-            (search
-              ? book.name.toLowerCase().includes(search.toLowerCase()) ||
-                book.author.toLowerCase().includes(search.toLowerCase()) ||
-                book.publisher.toLowerCase().includes(search.toLowerCase()) ||
-                book.genre.toLowerCase().includes(search.toLowerCase())
-              : true)
-          );
-        })
-        .sort((a, b) => {
-          if (!sortField) return 0;
-          const aVal = a[sortField].toLowerCase();
-          const bVal = b[sortField].toLowerCase();
-          if (aVal < bVal) return sortOrder === "asc" ? -1 : 1;
-          if (aVal > bVal) return sortOrder === "asc" ? 1 : -1;
-          return 0;
-        })
-    : [];
+  const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-4xl font-bold mb-6 text-center">Book List</h1>
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-6 gap-4">
+        <h1 className="text-3xl md:text-4xl font-bold">Book List</h1>
+        <button className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600" onClick={handleLogout}>
+          Logout
+        </button>
+      </div>
 
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
         <input
-          type="text"
-          placeholder="Search..."
-          className="border p-2 rounded w-full md:w-1/3"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          type="search"
+          placeholder="Search by name, author, publisher or genre…"
+          className="border p-2 rounded w-full md:w-1/2"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
         />
 
         <select
           className="border p-2 rounded w-full md:w-1/4"
-          value={filterGenre}
-          onChange={(e) => setFilterGenre(e.target.value)}
+          value={genre}
+          onChange={(e) => updateParams({ genre: e.target.value, page: 1 })}
         >
-        <option value="">All Genres</option>
-        {genres.map((genre) => (
-          <option key={genre} value={genre}>
-            {genre}
-          </option>
-        ))}
+          <option value="">All Genres</option>
+          {genres.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
         </select>
 
         <button
-          className="bg-blue-500 text-white px-4 py-2 rounded"
-          onClick={() => navigate("/add")}
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full md:w-auto"
+          onClick={() => navigate("/add", { state: { listSearch } })}
         >
           Add Book
         </button>
       </div>
-      <button
-        className="bg-gray-500 text-white px-4 py-2 rounded float-right"
-        onClick={() => {
-          localStorage.removeItem("loggedIn");
-          navigate("/login");
-        }}
-      >
-        Logout
-      </button>
 
-      <table className="w-full border border-gray-300 rounded-lg">
-        <thead className="bg-gray-200">
-          <tr>
-            <th className="border p-2 cursor-pointer" onClick={() => handleSort("name")}>
-              Book Name {sortField === "name" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
-            </th>
-            <th className="border p-2 cursor-pointer" onClick={() => handleSort("author")}>
-              Author {sortField === "author" ? (sortOrder === "asc" ? "↑" : "↓") : ""}
-            </th>
-            <th className="border p-2">Publisher</th>
-            <th className="border p-2">Genre</th>
-            <th className="border p-2">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredBooks.length === 0 ? (
+      {error && (
+        <div role="alert" className="bg-red-100 text-red-700 px-4 py-2 rounded mb-4 text-center">
+          {error}
+        </div>
+      )}
+
+      <p className="text-sm text-gray-600 mb-2">
+        {loading ? "Loading…" : `${totalBooks} book${totalBooks === 1 ? "" : "s"} found`}
+      </p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border border-gray-300 bg-white">
+          <thead className="bg-gray-200">
             <tr>
-              <td colSpan={5} className="text-center p-4">
-                No books found.
-              </td>
+              {COLUMNS.map(({ field, label }) => (
+                <th key={field} className="border p-2">
+                  <button type="button" className="font-bold w-full" onClick={() => handleSort(field)}>
+                    {label} {sort === field ? (order === "asc" ? "↑" : "↓") : ""}
+                  </button>
+                </th>
+              ))}
+              <th className="border p-2">Actions</th>
             </tr>
-          ) : (
-            filteredBooks.map((book) => (
-              <tr key={book._id} className="text-center">
-                <td className="border p-2">{book.name}</td>
-                <td className="border p-2">{book.author}</td>
-                <td className="border p-2">{book.publisher}</td>
-                <td className="border p-2">{book.genre}</td>
-                <td className="border p-2 text-center relative">
-                  <div className="relative inline-block text-left">
-                    <button
-                      onClick={() => setOpenBookId(book._id === openBookId ? null : book._id)}
-                      className="inline-flex justify-center items-center w-8 h-8 text-gray-700 hover:bg-gray-200 rounded-full"
-                    >
-                      ⋮
-                    </button>
-                    {openBookId === book._id && (
-                      <div className="origin-top-right absolute right-0 mt-2 w-28 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
-                        <div className="py-1">
-                          <button
-                            className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                            onClick={() => navigate(`/update/${book._id}`)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-                            onClick={() => handleDelete(book._id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+          </thead>
+          <tbody>
+            {!loading && books.length === 0 ? (
+              <tr>
+                <td colSpan={COLUMNS.length + 1} className="text-center p-4">
+                  {q || genre ? "No books match your search." : "No books yet. Click “Add Book” to add one."}
                 </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              books.map((book) => (
+                <tr key={book._id} className="text-center">
+                  {COLUMNS.map(({ field }) => (
+                    <td key={field} className="border p-2">
+                      {book[field]}
+                    </td>
+                  ))}
+                  <td className="border p-2 whitespace-nowrap">
+                    <button
+                      className="text-sm text-blue-600 hover:underline px-2"
+                      onClick={() => navigate(`/update/${book._id}`, { state: { listSearch } })}
+                    >
+                      Edit
+                    </button>
+                    <button className="text-sm text-red-600 hover:underline px-2" onClick={() => handleDelete(book)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
       <div className="flex justify-center items-center mt-6 gap-4">
         <button
-          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-          disabled={currentPage === 1}
+          onClick={() => updateParams({ page: page - 1 })}
+          disabled={page <= 1 || loading}
           className="bg-gray-300 text-gray-700 px-3 py-1 rounded disabled:opacity-50"
         >
           Previous
         </button>
 
         <span className="text-lg font-semibold">
-          Page {currentPage} of {totalPages}
+          Page {page} of {totalPages}
         </span>
 
         <button
-          onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-          disabled={currentPage === totalPages}
+          onClick={() => updateParams({ page: page + 1 })}
+          disabled={page >= totalPages || loading}
           className="bg-gray-300 text-gray-700 px-3 py-1 rounded disabled:opacity-50"
         >
           Next

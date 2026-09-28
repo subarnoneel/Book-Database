@@ -1,19 +1,22 @@
 {
-  "name": "frontend",
+  "name": "book-database-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/noto-sans-bengali": "^5.3.0",
     "axios": "^1.12.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "^7.9.4",
+    "react-router-dom": "^7.9.4"
+  },
+  "devDependencies": {
     "@vitejs/plugin-react": "^5.0.4",
     "vite": "^7.1.7",
     "@eslint/js": "^9.36.0",

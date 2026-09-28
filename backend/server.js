@@ -1,34 +1,50 @@
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import connectDB from "./utils/connectDB.js";
+import { checkEnv } from "./config.js";
 import bookRoutes from "./routes/bookRoutes.js";
-import { verifyLogin } from "./middleware/authMiddleware.js";
+import authRoutes from "./routes/authRoutes.js";
+import errorHandler from "./middleware/errorHandler.js";
 
-dotenv.config();
-connectDB();
+dotenv.config({ quiet: true });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(__dirname, "../frontend/dist");
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+// Render (and most hosts) sit behind one proxy; needed for secure cookies and rate limiting.
+app.set("trust proxy", 1);
+app.use(helmet());
+app.use(express.json({ limit: "100kb" }));
+app.use(cookieParser());
 
+app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);
-app.post("/api/login", verifyLogin, (req, res) => {
-  res.json({ message: "Login successful" });
-});
+app.use("/api", (req, res) => res.status(404).json({ message: "API route not found" }));
 
-// Serve frontend
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
+// Serve the built frontend (production). In development Vite serves it instead.
+if (fs.existsSync(path.join(distDir, "index.html"))) {
+  app.use(express.static(distDir));
+  app.get("*", (req, res) => res.sendFile(path.join(distDir, "index.html")));
+}
 
-// ✅ This is the correct wildcard route for Express 4
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
-});
+app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+const start = async () => {
+  try {
+    checkEnv();
+    await connectDB();
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (err) {
+    console.error("Failed to start server:", err.message);
+    process.exit(1);
+  }
+};
+
+start();

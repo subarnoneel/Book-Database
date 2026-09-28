@@ -1,86 +1,43 @@
-import { useState, useEffect } from "react";
-import { updateBook, fetchBookById } from "../services/api"; // ✅ use fetchBookById instead
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import BookForm from "../components/BookForm";
+import { fetchBookById, getErrorMessage, updateBook } from "../services/api";
 
 function UpdateBook() {
-  const [book, setBook] = useState({ name: "", author: "", publisher: "", genre: "" });
-  const navigate = useNavigate();
   const { id } = useParams();
+  const [book, setBook] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const loadBook = async () => {
-      try {
-        const { data } = await fetchBookById(id);
-        setBook(data);
-      } catch (err) {
-        console.error("Error loading book:", err);
-      }
-    };
-    loadBook();
+    setBook(null);
+    setError("");
+    fetchBookById(id)
+      .then(({ data }) => setBook(data))
+      .catch((err) => setError(getErrorMessage(err, "Could not load this book")));
   }, [id]);
 
-  const handleChange = (e) => {
-    setBook({ ...book, [e.target.name]: e.target.value });
-  };
+  if (error) {
+    return (
+      <div className="p-6 max-w-md mx-auto text-center">
+        <p role="alert" className="bg-red-100 text-red-700 px-4 py-2 rounded mb-4">
+          {error}
+        </p>
+        <Link to="/home" className="text-blue-600 underline">
+          Back to the book list
+        </Link>
+      </div>
+    );
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await updateBook(id, book);
-      navigate("/home", { state: { refresh: true } });
-    } catch (err) {
-      console.error("Error updating book:", err);
-    }
-  };
+  if (!book) return <p className="p-6 text-center text-gray-500">Loading…</p>;
 
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-3xl font-bold mb-4 text-center">Update Book</h1>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 bg-white p-6 rounded shadow-md">
-        <input
-          type="text"
-          name="name"
-          placeholder="Book Name"
-          className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={book.name}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="author"
-          placeholder="Author"
-          className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={book.author}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="publisher"
-          placeholder="Publisher"
-          className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={book.publisher}
-          onChange={handleChange}
-          required
-        />
-        <input
-          type="text"
-          name="genre"
-          placeholder="Genre"
-          className="border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-          value={book.genre}
-          onChange={handleChange}
-          required
-        />
-        <button
-          type="submit"
-          className="bg-green-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition"
-        >
-          Save Changes
-        </button>
-      </form>
-    </div>
+    <BookForm
+      title="Update Book"
+      submitLabel="Save Changes"
+      initialValues={book}
+      onSubmit={(values) => updateBook(id, values)}
+    />
   );
 }
 

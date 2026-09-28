@@ -1,9 +1,14 @@
-export const verifyLogin = (req, res, next) => {
-    const { username, password } = req.body;
-    if (username === process.env.ADMIN_USERNAME && password === process.env.ADMIN_PASSWORD) {
-        next();
-    }
-    else {
-        res.status(401).json({ message: "Invalid credentials" });
-    }
+import jwt from "jsonwebtoken";
+import { AUTH_COOKIE } from "../config.js";
+
+export const requireAuth = (req, res, next) => {
+  const token = req.cookies?.[AUTH_COOKIE];
+  if (!token) return res.status(401).json({ message: "Not logged in" });
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ message: "Session expired, please log in again" });
+  }
 };
