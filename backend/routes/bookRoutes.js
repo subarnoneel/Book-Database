@@ -1,7 +1,7 @@
 import express from "express";
 import {
   getBooks,
-  getGenres,
+  getMeta,
   getBookById,
   addBook,
   updateBook,
@@ -16,7 +16,7 @@ router.use(requireAuth);
 
 router.get("/", asyncHandler(getBooks));
 router.post("/", asyncHandler(addBook));
-router.get("/genres", asyncHandler(getGenres));
+router.get("/meta", asyncHandler(getMeta));
 router.get("/:id", asyncHandler(getBookById));
 router.put("/:id", asyncHandler(updateBook));
 router.delete("/:id", asyncHandler(deleteBook));

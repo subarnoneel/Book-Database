@@ -7,7 +7,8 @@ const bookSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     author: { type: String, required: true, trim: true },
-    publisher: { type: String, required: true, trim: true },
+    // Optional: often unknown for older books.
+    publisher: { type: String, trim: true, default: "" },
     genre: { type: String, required: true, trim: true },
   },
   { timestamps: true }

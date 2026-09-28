@@ -2,7 +2,7 @@ import BookForm from "../components/BookForm";
 import { addBook } from "../services/api";
 
 function AddBook() {
-  return <BookForm title="Add New Book" submitLabel="Add Book" onSubmit={addBook} />;
+  return <BookForm mode="add" onSubmit={addBook} />;
 }
 
 export default AddBook;

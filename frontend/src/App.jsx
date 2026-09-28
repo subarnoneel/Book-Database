@@ -1,6 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { LibraryBig } from "lucide-react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ToastProvider } from "./context/ToastContext";
+import AppLayout from "./components/AppLayout";
 import Home from "./pages/Home";
+import BookDetails from "./pages/BookDetails";
 import AddBook from "./pages/AddBook";
 import UpdateBook from "./pages/UpdateBook";
 import Login from "./pages/Login";
@@ -10,7 +14,13 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
-  if (loading) return <p className="p-6 text-center text-gray-500">Loading…</p>;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <LibraryBig className="h-8 w-8 animate-pulse text-brand-600" aria-label="Loading" />
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
@@ -18,39 +28,27 @@ function ProtectedRoute({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <div className="min-h-screen bg-gray-100 text-gray-900">
+      <ToastProvider>
+        <Router>
           <Routes>
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="/login" element={<Login />} />
             <Route
-              path="/home"
               element={
                 <ProtectedRoute>
-                  <Home />
+                  <AppLayout />
                 </ProtectedRoute>
               }
-            />
-            <Route
-              path="/add"
-              element={
-                <ProtectedRoute>
-                  <AddBook />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/update/:id"
-              element={
-                <ProtectedRoute>
-                  <UpdateBook />
-                </ProtectedRoute>
-              }
-            />
+            >
+              <Route path="/home" element={<Home />} />
+              <Route path="/books/:id" element={<BookDetails />} />
+              <Route path="/add" element={<AddBook />} />
+              <Route path="/update/:id" element={<UpdateBook />} />
+            </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </div>
-      </Router>
+        </Router>
+      </ToastProvider>
     </AuthProvider>
   );
 }

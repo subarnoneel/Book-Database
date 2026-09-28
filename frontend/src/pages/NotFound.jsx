@@ -1,12 +1,17 @@
 import { Link } from "react-router-dom";
+import { BookX } from "lucide-react";
 
 function NotFound() {
   return (
-    <div className="p-6 max-w-md mx-auto text-center">
-      <h1 className="text-3xl font-bold mb-4">Page not found</h1>
-      <Link to="/home" className="text-blue-600 underline">
-        Back to the book list
-      </Link>
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="text-center">
+        <BookX className="mx-auto h-12 w-12 text-brand-600" aria-hidden />
+        <h1 className="mt-4 text-3xl font-bold">Page not found</h1>
+        <p className="mt-2 text-ink-soft">This page isn’t on any of our shelves.</p>
+        <Link to="/home" className="btn-primary mt-6">
+          Back to the library
+        </Link>
+      </div>
     </div>
   );
 }

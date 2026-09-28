@@ -62,11 +62,28 @@ export const getBooks = async (req, res) => {
   });
 };
 
-// GET /api/books/genres
-export const getGenres = async (req, res) => {
-  const genres = await Book.distinct("genre");
+// GET /api/books/meta
+// Library totals, genres with counts (for filter chips) and the distinct authors and
+// publishers (for form autocomplete).
+export const getMeta = async (req, res) => {
+  const [totalBooks, genreCounts, authors, publishers] = await Promise.all([
+    Book.countDocuments(),
+    Book.aggregate([{ $group: { _id: "$genre", count: { $sum: 1 } } }]),
+    Book.distinct("author"),
+    Book.distinct("publisher"),
+  ]);
   const collator = new Intl.Collator("bn");
-  res.json(genres.filter(Boolean).sort(collator.compare));
+  const sortNames = (names) => names.filter(Boolean).sort(collator.compare);
+
+  res.json({
+    totalBooks,
+    genres: genreCounts
+      .filter((g) => g._id)
+      .map((g) => ({ name: g._id, count: g.count }))
+      .sort((a, b) => collator.compare(a.name, b.name)),
+    authors: sortNames(authors),
+    publishers: sortNames(publishers),
+  });
 };
 
 // GET /api/books/:id

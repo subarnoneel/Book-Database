@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, BookX } from "lucide-react";
 import BookForm from "../components/BookForm";
+import EmptyState from "../components/EmptyState";
 import { fetchBookById, getErrorMessage, updateBook } from "../services/api";
 
 function UpdateBook() {
@@ -18,27 +20,25 @@ function UpdateBook() {
 
   if (error) {
     return (
-      <div className="p-6 max-w-md mx-auto text-center">
-        <p role="alert" className="bg-red-100 text-red-700 px-4 py-2 rounded mb-4">
-          {error}
-        </p>
-        <Link to="/home" className="text-blue-600 underline">
-          Back to the book list
+      <>
+        <Link to="/home" className="btn-ghost -ml-3 mb-6">
+          <ArrowLeft className="h-4 w-4" aria-hidden /> Back to library
         </Link>
+        <EmptyState icon={BookX} title="Book not found" message={error} />
+      </>
+    );
+  }
+
+  if (!book) {
+    return (
+      <div className="space-y-4">
+        <div className="skeleton h-9 w-48" />
+        <div className="skeleton h-80 w-full max-w-3xl" />
       </div>
     );
   }
 
-  if (!book) return <p className="p-6 text-center text-gray-500">Loading…</p>;
-
-  return (
-    <BookForm
-      title="Update Book"
-      submitLabel="Save Changes"
-      initialValues={book}
-      onSubmit={(values) => updateBook(id, values)}
-    />
-  );
+  return <BookForm mode="edit" initialValues={book} onSubmit={(values) => updateBook(id, values)} />;
 }
 
 export default UpdateBook;

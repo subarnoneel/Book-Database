@@ -57,9 +57,9 @@ All `/api/books` routes require you to be logged in. Login sets an httpOnly sess
 | GET | `/api/auth/me` | Returns the current user, or 401. |
 | POST | `/api/auth/logout` | Clears the session. |
 | GET | `/api/books?q=&genre=&sort=&order=&page=&limit=` | Search, filter, sort and paginate. `sort` is one of `name`, `author`, `publisher`, `genre`, `createdAt`. |
-| GET | `/api/books/genres` | All distinct genres. |
+| GET | `/api/books/meta` | Totals, genres with counts, and all authors and publishers (for autocomplete). |
 | GET | `/api/books/:id` | Get one book. |
-| POST | `/api/books` | Add a book: `{ name, author, publisher, genre }`. |
+| POST | `/api/books` | Add a book: `{ name, author, genre, publisher? }` (publisher is optional). |
 | PUT | `/api/books/:id` | Update any of those fields. |
 | DELETE | `/api/books/:id` | Delete a book. |
 

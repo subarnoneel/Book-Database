@@ -1,28 +1,50 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { fetchGenres, getErrorMessage } from "../services/api";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, Check } from "lucide-react";
+import BookCover from "./BookCover";
+import Combobox from "./Combobox";
+import { useToast } from "../context/ToastContext";
+import useLibraryMeta from "../hooks/useLibraryMeta";
+import { getErrorMessage } from "../services/api";
 
 const EMPTY_BOOK = { name: "", author: "", publisher: "", genre: "" };
+const QUICK_GENRES = 8;
 
-const FIELDS = [
-  { name: "name", label: "Book Name" },
-  { name: "author", label: "Author" },
-  { name: "publisher", label: "Publisher" },
-];
+function Field({ id, label, optional = false, error, children }) {
+  return (
+    <div>
+      <label htmlFor={id} className="label">
+        {label}
+        {optional && <span className="ml-1 font-normal text-ink-muted">(optional)</span>}
+      </label>
+      {children}
+      {error && (
+        <p id={`${id}-error`} className="mt-1.5 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
-const inputClass = "border p-2 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-400";
-
-// Shared by AddBook and UpdateBook. `onSubmit` receives the four book fields.
-function BookForm({ title, submitLabel, initialValues, onSubmit }) {
+// Shared by AddBook and UpdateBook. `onSubmit` receives the four book fields and
+// returns the saved book.
+function BookForm({ mode, initialValues, onSubmit }) {
+  const isEdit = mode === "edit";
   const [book, setBook] = useState(EMPTY_BOOK);
-  const [genres, setGenres] = useState([]);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [keptForNext, setKeptForNext] = useState(false);
+  const titleRef = useRef(null);
+  const meta = useLibraryMeta();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  // Return to the list view (search, filter, page) the user came from.
-  const backToList = `/home${location.state?.listSearch ?? ""}`;
+
+  // Where to go after saving or cancelling: the details page or the list view the user came from.
+  const listSearch = location.state?.listSearch ?? "";
+  const returnTo = location.state?.returnTo ?? `/home${listSearch}`;
 
   useEffect(() => {
     if (initialValues) {
@@ -35,26 +57,30 @@ function BookForm({ title, submitLabel, initialValues, onSubmit }) {
     }
   }, [initialValues]);
 
-  useEffect(() => {
-    fetchGenres()
-      .then(({ data }) => setGenres(data))
-      .catch(() => setGenres([]));
-  }, []);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  const setField = (name, value) => {
     setBook((prev) => ({ ...prev, [name]: value }));
     setFieldErrors((prev) => ({ ...prev, [name]: undefined }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const addAnother = e.nativeEvent.submitter?.value === "another";
     setError("");
     setFieldErrors({});
     setSubmitting(true);
     try {
-      await onSubmit(book);
-      navigate(backToList);
+      const { data: saved } = await onSubmit(book);
+      if (addAnother) {
+        toast.success(`Added "${saved.name}". Ready for the next one.`);
+        setBook((prev) => ({ ...EMPTY_BOOK, author: prev.author, publisher: prev.publisher, genre: prev.genre }));
+        setKeptForNext(true);
+        setSubmitting(false);
+        titleRef.current?.focus();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      toast.success(isEdit ? "Changes saved" : `Added "${saved.name}"`);
+      navigate(isEdit ? returnTo : `/books/${saved._id}`, { state: { listSearch } });
     } catch (err) {
       setError(getErrorMessage(err));
       setFieldErrors(err.response?.data?.errors ?? {});
@@ -62,76 +88,129 @@ function BookForm({ title, submitLabel, initialValues, onSubmit }) {
     }
   };
 
+  // Publisher is optional: it is often unknown for older books.
+  const fieldProps = (name, { required = true } = {}) => ({
+    id: name,
+    name,
+    value: book[name],
+    required,
+    "aria-invalid": fieldErrors[name] ? true : undefined,
+    "aria-describedby": fieldErrors[name] ? `${name}-error` : undefined,
+    className: `input ${fieldErrors[name] ? "input-error" : ""}`,
+  });
+  const comboProps = (name, options) => ({
+    ...fieldProps(name, { required: name !== "publisher" }),
+    options,
+    onChange: (value) => setField(name, value),
+  });
+
+  const quickGenres = [...meta.genres].sort((a, b) => b.count - a.count).slice(0, QUICK_GENRES);
+
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-3xl font-bold mb-4 text-center">{title}</h1>
+    <>
+      <Link to={returnTo} state={{ listSearch }} className="btn-ghost -ml-3 mb-4">
+        <ArrowLeft className="h-4 w-4" aria-hidden /> {isEdit ? "Back" : "Back to library"}
+      </Link>
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4 bg-white p-6 rounded shadow-md">
-        {error && (
-          <div role="alert" className="bg-red-100 text-red-700 px-4 py-2 rounded text-center">
-            {error}
-          </div>
-        )}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-brand-900">{isEdit ? "Edit book" : "Add a book"}</h1>
+        <p className="mt-1 text-ink-soft">
+          {isEdit ? "Update the details below." : "Type in Bangla or English. Suggestions appear as you type."}
+        </p>
+      </div>
 
-        {FIELDS.map(({ name, label }) => (
-          <div key={name}>
-            <label htmlFor={name} className="block mb-1 font-semibold text-gray-700">
-              {label}
-            </label>
+      <div className="grid gap-8 lg:grid-cols-[1fr_16rem]">
+        <form onSubmit={handleSubmit} className="card space-y-5 p-5 sm:p-7">
+          {error && (
+            <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          {keptForNext && !error && (
+            <div className="flex items-start gap-2 rounded-lg bg-brand-50 px-4 py-3 text-sm text-brand-800">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              Saved. Author, publisher and genre were kept for the next book; change them if needed.
+            </div>
+          )}
+
+          <Field id="name" label="Title" error={fieldErrors.name}>
             <input
-              id={name}
-              type="text"
-              name={name}
-              className={inputClass}
-              value={book[name]}
-              onChange={handleChange}
-              required
+              {...fieldProps("name")}
+              onChange={(e) => setField("name", e.target.value)}
+              autoComplete="off"
+              ref={titleRef}
+              autoFocus={!isEdit}
+              className={`${fieldProps("name").className} text-lg`}
             />
-            {fieldErrors[name] && <p className="text-sm text-red-600 mt-1">{fieldErrors[name]}</p>}
+          </Field>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field id="author" label="Author" error={fieldErrors.author}>
+              <Combobox {...comboProps("author", meta.authors)} emptyText="No authors saved yet. Type a new one." />
+            </Field>
+            <Field id="publisher" label="Publisher" optional error={fieldErrors.publisher}>
+              <Combobox
+                {...comboProps("publisher", meta.publishers)}
+                placeholder="Leave blank if unknown"
+                emptyText="No publishers saved yet. Type a new one."
+              />
+            </Field>
           </div>
-        ))}
 
-        <div>
-          <label htmlFor="genre" className="block mb-1 font-semibold text-gray-700">
-            Genre
-          </label>
-          <input
-            id="genre"
-            type="text"
-            name="genre"
-            list="genre-options"
-            placeholder="Pick an existing genre or type a new one"
-            className={inputClass}
-            value={book.genre}
-            onChange={handleChange}
-            required
-          />
-          <datalist id="genre-options">
-            {genres.map((g) => (
-              <option key={g} value={g} />
-            ))}
-          </datalist>
-          {fieldErrors.genre && <p className="text-sm text-red-600 mt-1">{fieldErrors.genre}</p>}
-        </div>
+          <Field id="genre" label="Genre" error={fieldErrors.genre}>
+            <Combobox
+              {...comboProps("genre", meta.genres.map((g) => g.name))}
+              placeholder="Pick one or type a new genre"
+              emptyText="No genres saved yet. Type a new one."
+            />
+            {quickGenres.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {quickGenres.map((g) => {
+                  const active = book.genre === g.name;
+                  return (
+                    <button
+                      key={g.name}
+                      type="button"
+                      onClick={() => setField("genre", g.name)}
+                      aria-pressed={active}
+                      className={`chip py-1 text-xs ${
+                        active
+                          ? "border-brand-600 bg-brand-600 text-white"
+                          : "border-paper-line bg-paper text-ink-soft hover:border-brand-300"
+                      }`}
+                    >
+                      {g.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </Field>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(backToList)}
-            className="flex-1 bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400 transition"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="flex-1 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition disabled:opacity-60"
-          >
-            {submitting ? "Saving…" : submitLabel}
-          </button>
-        </div>
-      </form>
-    </div>
+          {/* Primary button first in the DOM so pressing Enter saves normally; shown rightmost. */}
+          <div className="flex flex-col gap-2 border-t border-paper-line pt-5 sm:flex-row-reverse sm:justify-start">
+            <button type="submit" value="save" className="btn-primary" disabled={submitting}>
+              {submitting ? "Saving…" : isEdit ? "Save changes" : "Add book"}
+            </button>
+            {!isEdit && (
+              <button type="submit" value="another" className="btn-secondary" disabled={submitting}>
+                Save &amp; add another
+              </button>
+            )}
+            <Link to={returnTo} state={{ listSearch }} className="btn-ghost">
+              Cancel
+            </Link>
+          </div>
+        </form>
+
+        <aside className="hidden lg:block">
+          <div className="sticky top-24">
+            <p className="label">Preview</p>
+            <BookCover title={book.name || "Book title"} author={book.author || "Author"} />
+          </div>
+        </aside>
+      </div>
+    </>
   );
 }
 

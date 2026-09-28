@@ -1,40 +1,58 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import { deleteBook, fetchBooks, fetchGenres, getErrorMessage } from "../services/api";
+import { Link, useSearchParams } from "react-router-dom";
+import { BookPlus, LayoutGrid, List, Plus, Search, SearchX, X } from "lucide-react";
+import BookCard, { BookCardSkeleton } from "../components/BookCard";
+import BookTable from "../components/BookTable";
+import EmptyState from "../components/EmptyState";
+import Pagination from "../components/Pagination";
+import useDeleteBook from "../hooks/useDeleteBook";
+import useLibraryMeta from "../hooks/useLibraryMeta";
+import { fetchBooks, getErrorMessage } from "../services/api";
+import { plural } from "../utils/format";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 24;
 const SEARCH_DELAY_MS = 300;
+const VIEW_KEY = "library-view";
 
-const COLUMNS = [
-  { field: "name", label: "Book Name" },
-  { field: "author", label: "Author" },
-  { field: "publisher", label: "Publisher" },
-  { field: "genre", label: "Genre" },
+const SORT_OPTIONS = [
+  { value: "createdAt:desc", label: "Recently added" },
+  { value: "createdAt:asc", label: "Oldest added" },
+  { value: "name:asc", label: "Title A–Z" },
+  { value: "name:desc", label: "Title Z–A" },
+  { value: "author:asc", label: "Author A–Z" },
+  { value: "author:desc", label: "Author Z–A" },
+  { value: "publisher:asc", label: "Publisher A–Z" },
 ];
 
-function Home() {
-  const navigate = useNavigate();
-  const { logout } = useAuth();
+const readView = () => {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid";
+  } catch {
+    return "grid";
+  }
+};
 
-  // Search, filter, sort and page live in the URL so they survive going to Edit and back.
+function Home() {
+  // Search, filter, sort and page live in the URL so they survive going to a book and back.
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get("q") ?? "";
   const genre = searchParams.get("genre") ?? "";
   const sort = searchParams.get("sort") ?? "";
-  const order = searchParams.get("order") === "desc" ? "desc" : "asc";
+  const order = searchParams.get("order") === "asc" ? "asc" : "desc";
   const page = Math.max(1, Number.parseInt(searchParams.get("page"), 10) || 1);
-  // Passed to Add/Edit so they can return to this exact list view.
-  const listSearch = searchParams.toString() ? `?${searchParams}` : "";
+  // Passed to child pages so they can return to this exact list view.
+  const linkState = { listSearch: searchParams.toString() ? `?${searchParams}` : "" };
 
   const [searchInput, setSearchInput] = useState(q);
   const [books, setBooks] = useState([]);
   const [totalBooks, setTotalBooks] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [genres, setGenres] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [view, setView] = useState(readView);
+  const meta = useLibraryMeta(reloadKey);
+  const { requestDelete, dialog } = useDeleteBook({ onDeleted: () => setReloadKey((k) => k + 1) });
 
   const updateParams = useCallback(
     (changes, { replace = false } = {}) => {
@@ -61,7 +79,7 @@ function Home() {
     setSearchInput(q);
   }, [q]);
 
-  // Debounce typing, then search the whole database from page 1.
+  // Debounce typing, then search the whole library from page 1.
   useEffect(() => {
     if (searchInput.trim() === q) return;
     const timer = setTimeout(() => updateParams({ q: searchInput.trim(), page: 1 }, { replace: true }), SEARCH_DELAY_MS);
@@ -84,12 +102,12 @@ function Home() {
         setBooks(data.books);
         setTotalBooks(data.totalBooks);
         setTotalPages(data.totalPages);
+        setLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) setError(getErrorMessage(err, "Could not load books"));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setError(getErrorMessage(err, "Could not load books"));
+        setLoading(false);
       });
 
     return () => {
@@ -97,153 +115,223 @@ function Home() {
     };
   }, [q, genre, sort, order, page, reloadKey, updateParams]);
 
-  useEffect(() => {
-    fetchGenres()
-      .then(({ data }) => setGenres(data))
-      .catch(() => setGenres([]));
-  }, [reloadKey]);
-
-  const handleDelete = async (book) => {
-    if (!window.confirm(`Delete "${book.name}"?`)) return;
+  const changeView = (next) => {
+    setView(next);
     try {
-      await deleteBook(book._id);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      setError(getErrorMessage(err, "Could not delete the book"));
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      // Private mode etc.: the choice just won't be remembered.
     }
   };
 
-  const handleSort = (field) => {
-    if (sort === field) {
-      updateParams({ order: order === "asc" ? "desc" : "asc", page: 1 });
-    } else {
-      updateParams({ sort: field, order: "asc", page: 1 });
-    }
+  const handleSortSelect = (value) => {
+    const [field, dir] = value.split(":");
+    const isDefault = value === SORT_OPTIONS[0].value;
+    updateParams({ sort: isDefault ? "" : field, order: isDefault ? "" : dir, page: 1 });
   };
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
+  const handleColumnSort = (field) => {
+    const nextOrder = sort === field && order === "asc" ? "desc" : "asc";
+    updateParams({ sort: field, order: nextOrder, page: 1 });
   };
+
+  const changePage = (next) => {
+    updateParams({ page: next });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const clearFilters = () => {
+    setSearchInput("");
+    updateParams({ q: "", genre: "", page: 1 });
+  };
+
+  const sortValue = sort ? `${sort}:${order}` : SORT_OPTIONS[0].value;
+  const filtering = Boolean(q || genre);
+  const firstShown = (page - 1) * PAGE_SIZE + 1;
+  const lastShown = Math.min(page * PAGE_SIZE, totalBooks);
+
+  let resultsLabel = "";
+  if (!loading) {
+    if (totalBooks === 0) resultsLabel = "";
+    else if (filtering) resultsLabel = `${plural(totalBooks, "match", "matches")}${q ? ` for “${q}”` : ""}${genre ? ` in ${genre}` : ""}`;
+    else resultsLabel = `Showing ${firstShown}–${lastShown} of ${totalBooks}`;
+  }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6 gap-4">
-        <h1 className="text-3xl md:text-4xl font-bold">Book List</h1>
-        <button className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600" onClick={handleLogout}>
-          Logout
-        </button>
+    <>
+      {/* Heading */}
+      <section className="mb-6 sm:mb-8">
+        <h1 className="text-3xl font-bold text-brand-900 sm:text-4xl">Our Library</h1>
+        <p className="mt-2 text-ink-soft">
+          {meta.totalBooks > 0 ? (
+            <>
+              {plural(meta.totalBooks, "book")} · {plural(meta.authors.length, "author")} ·{" "}
+              {plural(meta.genres.length, "genre")}
+            </>
+          ) : (
+            <span className="invisible">…</span>
+          )}
+        </p>
+      </section>
+
+      {/* Search + controls */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-muted" aria-hidden />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search title, author, genre…"
+            aria-label="Search books"
+            className="input h-12 pl-11 pr-10 [&::-webkit-search-cancel-button]:hidden"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => setSearchInput("")}
+              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-ink-muted hover:bg-paper-dark hover:text-ink"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <select
+            value={sortValue}
+            onChange={(e) => handleSortSelect(e.target.value)}
+            aria-label="Sort books"
+            className="input h-12 flex-1 cursor-pointer sm:w-48 sm:flex-none"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+            {!SORT_OPTIONS.some((o) => o.value === sortValue) && <option value={sortValue}>Custom order</option>}
+          </select>
+          <div className="flex rounded-lg border border-paper-line bg-white p-1 shadow-sm" role="group" aria-label="View">
+            {[
+              { value: "grid", icon: LayoutGrid, label: "Grid view" },
+              { value: "list", icon: List, label: "List view" },
+            ].map(({ value, icon: Icon, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => changeView(value)}
+                aria-pressed={view === value}
+                title={label}
+                aria-label={label}
+                className={`flex h-9 w-10 items-center justify-center rounded-md transition ${
+                  view === value ? "bg-brand-700 text-white" : "text-ink-muted hover:text-ink"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-        <input
-          type="search"
-          placeholder="Search by name, author, publisher or genre…"
-          className="border p-2 rounded w-full md:w-1/2"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-        />
-
-        <select
-          className="border p-2 rounded w-full md:w-1/4"
-          value={genre}
-          onChange={(e) => updateParams({ genre: e.target.value, page: 1 })}
-        >
-          <option value="">All Genres</option>
-          {genres.map((g) => (
-            <option key={g} value={g}>
-              {g}
-            </option>
-          ))}
-        </select>
-
-        <button
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 w-full md:w-auto"
-          onClick={() => navigate("/add", { state: { listSearch } })}
-        >
-          Add Book
-        </button>
-      </div>
-
-      {error && (
-        <div role="alert" className="bg-red-100 text-red-700 px-4 py-2 rounded mb-4 text-center">
-          {error}
+      {/* Genre chips */}
+      {meta.genres.length > 0 && (
+        <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-2 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+          {[{ name: "", label: "All", count: meta.totalBooks }, ...meta.genres].map((g) => {
+            const active = genre === g.name;
+            return (
+              <button
+                key={g.name || "all"}
+                type="button"
+                onClick={() => updateParams({ genre: g.name, page: 1 })}
+                aria-pressed={active}
+                className={`chip ${
+                  active
+                    ? "border-brand-700 bg-brand-700 text-white"
+                    : "border-paper-line bg-white text-ink-soft hover:border-brand-300 hover:text-ink"
+                }`}
+              >
+                {g.label ?? g.name}
+                <span className={`text-xs ${active ? "text-white/75" : "text-ink-muted"}`}>{g.count}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
-      <p className="text-sm text-gray-600 mb-2">
-        {loading ? "Loading…" : `${totalBooks} book${totalBooks === 1 ? "" : "s"} found`}
-      </p>
-
-      <div className="overflow-x-auto">
-        <table className="w-full border border-gray-300 bg-white">
-          <thead className="bg-gray-200">
-            <tr>
-              {COLUMNS.map(({ field, label }) => (
-                <th key={field} className="border p-2">
-                  <button type="button" className="font-bold w-full" onClick={() => handleSort(field)}>
-                    {label} {sort === field ? (order === "asc" ? "↑" : "↓") : ""}
-                  </button>
-                </th>
-              ))}
-              <th className="border p-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!loading && books.length === 0 ? (
-              <tr>
-                <td colSpan={COLUMNS.length + 1} className="text-center p-4">
-                  {q || genre ? "No books match your search." : "No books yet. Click “Add Book” to add one."}
-                </td>
-              </tr>
-            ) : (
-              books.map((book) => (
-                <tr key={book._id} className="text-center">
-                  {COLUMNS.map(({ field }) => (
-                    <td key={field} className="border p-2">
-                      {book[field]}
-                    </td>
-                  ))}
-                  <td className="border p-2 whitespace-nowrap">
-                    <button
-                      className="text-sm text-blue-600 hover:underline px-2"
-                      onClick={() => navigate(`/update/${book._id}`, { state: { listSearch } })}
-                    >
-                      Edit
-                    </button>
-                    <button className="text-sm text-red-600 hover:underline px-2" onClick={() => handleDelete(book)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* Results */}
+      <div className="mb-4 mt-4 flex min-h-6 items-center justify-between text-sm text-ink-muted">
+        <span aria-live="polite">{resultsLabel}</span>
+        {filtering && !loading && (
+          <button type="button" onClick={clearFilters} className="font-medium text-brand-700 hover:underline">
+            Clear filters
+          </button>
+        )}
       </div>
 
-      <div className="flex justify-center items-center mt-6 gap-4">
-        <button
-          onClick={() => updateParams({ page: page - 1 })}
-          disabled={page <= 1 || loading}
-          className="bg-gray-300 text-gray-700 px-3 py-1 rounded disabled:opacity-50"
-        >
-          Previous
-        </button>
+      {error ? (
+        <div role="alert" className="card border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}{" "}
+          <button className="font-semibold underline" onClick={() => setReloadKey((k) => k + 1)}>
+            Try again
+          </button>
+        </div>
+      ) : !loading && books.length === 0 ? (
+        filtering ? (
+          <EmptyState
+            icon={SearchX}
+            title="No books found"
+            message="Nothing matches your search. Try a different spelling, or search in Bangla / English."
+            action={
+              <button className="btn-secondary" onClick={clearFilters}>
+                Clear filters
+              </button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={BookPlus}
+            title="Your library is empty"
+            message="Add your first book to start building the family catalogue."
+            action={
+              <Link to="/add" className="btn-primary">
+                <Plus className="h-4 w-4" aria-hidden /> Add a book
+              </Link>
+            }
+          />
+        )
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {loading
+            ? Array.from({ length: 12 }, (_, i) => <BookCardSkeleton key={i} />)
+            : books.map((book) => <BookCard key={book._id} book={book} linkState={linkState} />)}
+        </div>
+      ) : (
+        <BookTable
+          books={books}
+          loading={loading}
+          sort={sort}
+          order={order}
+          onSort={handleColumnSort}
+          onDelete={requestDelete}
+          linkState={linkState}
+        />
+      )}
 
-        <span className="text-lg font-semibold">
-          Page {page} of {totalPages}
-        </span>
+      <Pagination page={page} totalPages={totalPages} onChange={changePage} disabled={loading} />
 
-        <button
-          onClick={() => updateParams({ page: page + 1 })}
-          disabled={page >= totalPages || loading}
-          className="bg-gray-300 text-gray-700 px-3 py-1 rounded disabled:opacity-50"
-        >
-          Next
-        </button>
-      </div>
-    </div>
+      {/* Mobile add button */}
+      <Link
+        to="/add"
+        state={linkState}
+        className="fixed bottom-5 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-brand-700 text-white shadow-lift transition active:scale-95 sm:hidden"
+        aria-label="Add book"
+      >
+        <Plus className="h-6 w-6" />
+      </Link>
+
+      {dialog}
+    </>
   );
 }
 

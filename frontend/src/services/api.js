@@ -32,7 +32,7 @@ export const fetchBooks = ({ q, genre, sort, order, page = 1, limit = 10 } = {})
 
 export const fetchBookById = (id) => API.get(`/books/${id}`);
 
-export const fetchGenres = () => API.get("/books/genres");
+export const fetchMeta = () => API.get("/books/meta");
 
 export const addBook = (book) => API.post("/books", book);
 

@@ -1,3 +1,102 @@
+/*
+ * Bangla fonts. At the same font-size, Bangla letters look noticeably smaller than
+ * English, so size-adjust scales them until the matra (top bar) lines up with English
+ * capital height. unicode-range limits these faces to Bangla characters, so English
+ * text keeps using Inter / Lora.
+ */
+@font-face {
+  font-family: "Noto Sans Bengali";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  size-adjust: 118%;
+  src: url("../node_modules/@fontsource/noto-sans-bengali/files/noto-sans-bengali-bengali-400-normal.woff2") format("woff2");
+  unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2, U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA,
+    U+1CED, U+1CF2, U+1CF5-1CF7, U+200C-200D, U+20B9, U+25CC, U+A8F1;
+}
+@font-face {
+  font-family: "Noto Sans Bengali";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  size-adjust: 118%;
+  src: url("../node_modules/@fontsource/noto-sans-bengali/files/noto-sans-bengali-bengali-600-normal.woff2") format("woff2");
+  unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2, U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA,
+    U+1CED, U+1CF2, U+1CF5-1CF7, U+200C-200D, U+20B9, U+25CC, U+A8F1;
+}
+@font-face {
+  font-family: "Noto Serif Bengali";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  size-adjust: 113%;
+  src: url("../node_modules/@fontsource/noto-serif-bengali/files/noto-serif-bengali-bengali-600-normal.woff2") format("woff2");
+  unicode-range: U+0951-0952, U+0964-0965, U+0980-09FE, U+1CD0, U+1CD2, U+1CD5-1CD6, U+1CD8, U+1CE1, U+1CEA,
+    U+1CED, U+1CF2, U+1CF5-1CF7, U+200C-200D, U+20B9, U+25CC, U+A8F1;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-serif;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-paper;
+  }
+  dialog::backdrop {
+    background: rgb(24 52 46 / 0.45);
+    backdrop-filter: blur(2px);
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply btn border border-paper-line bg-white text-ink shadow-sm hover:bg-paper-dark;
+  }
+  .btn-ghost {
+    @apply btn text-ink-soft hover:bg-paper-dark hover:text-ink;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-700;
+  }
+  .icon-btn {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-lg text-ink-soft transition hover:bg-paper-dark hover:text-ink;
+  }
+  .input {
+    @apply w-full rounded-lg border border-paper-line bg-white px-3.5 py-2.5 text-base text-ink shadow-sm
+      placeholder:text-ink-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30;
+  }
+  .input-error {
+    @apply border-red-400 focus:border-red-500 focus:ring-red-500/30;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-ink-soft;
+  }
+  .card {
+    @apply rounded-xl border border-paper-line bg-white shadow-card;
+  }
+  .chip {
+    @apply inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition;
+  }
+  .skeleton {
+    @apply animate-pulse rounded bg-paper-dark;
+  }
+}
