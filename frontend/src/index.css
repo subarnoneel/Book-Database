@@ -84,6 +84,9 @@
     @apply w-full rounded-lg border border-paper-line bg-white px-3.5 py-2.5 text-base text-ink shadow-sm
       placeholder:text-ink-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30;
   }
+  .input-warn {
+    @apply border-amber-400 bg-amber-50/40 focus:border-amber-500 focus:ring-amber-500/30;
+  }
   .input-error {
     @apply border-red-400 focus:border-red-500 focus:ring-red-500/30;
   }

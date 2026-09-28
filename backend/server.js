@@ -9,6 +9,7 @@ import connectDB from "./utils/connectDB.js";
 import { checkEnv } from "./config.js";
 import bookRoutes from "./routes/bookRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import scanRoutes from "./routes/scanRoutes.js";
 import errorHandler from "./middleware/errorHandler.js";
 
 dotenv.config({ quiet: true });
@@ -20,8 +21,10 @@ const app = express();
 // Render (and most hosts) sit behind one proxy; needed for secure cookies and rate limiting.
 app.set("trust proxy", 1);
 app.use(helmet());
-app.use(express.json({ limit: "100kb" }));
 app.use(cookieParser());
+// Mounted before the global JSON parser: it accepts photos, so it has its own larger limit.
+app.use("/api/scan", scanRoutes);
+app.use(express.json({ limit: "100kb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);

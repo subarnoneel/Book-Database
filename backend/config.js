@@ -8,4 +8,7 @@ export const checkEnv = () => {
   if (missing.length) {
     throw new Error(`Missing environment variables: ${missing.join(", ")}. See backend/.env.example.`);
   }
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn("GEMINI_API_KEY is not set: book scanning will be unavailable.");
+  }
 };

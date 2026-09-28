@@ -65,7 +65,7 @@ export const getBooks = async (req, res) => {
 // GET /api/books/meta
 // Library totals, genres with counts (for filter chips) and the distinct authors and
 // publishers (for form autocomplete).
-export const getMeta = async (req, res) => {
+export const loadLibraryMeta = async () => {
   const [totalBooks, genreCounts, authors, publishers] = await Promise.all([
     Book.countDocuments(),
     Book.aggregate([{ $group: { _id: "$genre", count: { $sum: 1 } } }]),
@@ -75,7 +75,7 @@ export const getMeta = async (req, res) => {
   const collator = new Intl.Collator("bn");
   const sortNames = (names) => names.filter(Boolean).sort(collator.compare);
 
-  res.json({
+  return {
     totalBooks,
     genres: genreCounts
       .filter((g) => g._id)
@@ -83,7 +83,11 @@ export const getMeta = async (req, res) => {
       .sort((a, b) => collator.compare(a.name, b.name)),
     authors: sortNames(authors),
     publishers: sortNames(publishers),
-  });
+  };
+};
+
+export const getMeta = async (req, res) => {
+  res.json(await loadLibraryMeta());
 };
 
 // GET /api/books/:id

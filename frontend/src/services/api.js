@@ -40,6 +40,10 @@ export const updateBook = (id, book) => API.put(`/books/${id}`, book);
 
 export const deleteBook = (id) => API.delete(`/books/${id}`);
 
+// Reads book details from photos. `images` is [{ data: base64, mimeType }].
+// The AI can take a while, so this call gets a longer timeout.
+export const scanBook = (images) => API.post("/scan", { images }, { timeout: 120_000 });
+
 // Auth
 export const login = (credentials) => API.post("/auth/login", credentials);
 
