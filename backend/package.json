@@ -24,6 +24,6 @@
     "mongoose": "^8.19.1"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   }
 }
