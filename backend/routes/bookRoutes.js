@@ -2,6 +2,9 @@ import express from "express";
 import {
   getBooks,
   getMeta,
+  getFieldValues,
+  bulkRename,
+  exportPdf,
   getBookById,
   addBook,
   updateBook,
@@ -17,6 +20,9 @@ router.use(requireAuth);
 router.get("/", asyncHandler(getBooks));
 router.post("/", asyncHandler(addBook));
 router.get("/meta", asyncHandler(getMeta));
+router.get("/values", asyncHandler(getFieldValues));
+router.get("/export/pdf", asyncHandler(exportPdf));
+router.post("/bulk-rename", asyncHandler(bulkRename));
 router.get("/:id", asyncHandler(getBookById));
 router.put("/:id", asyncHandler(updateBook));
 router.delete("/:id", asyncHandler(deleteBook));

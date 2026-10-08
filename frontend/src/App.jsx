@@ -9,6 +9,7 @@ import AddBook from "./pages/AddBook";
 import UpdateBook from "./pages/UpdateBook";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import TidyUp from "./pages/TidyUp";
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -44,6 +45,7 @@ function App() {
               <Route path="/books/:id" element={<BookDetails />} />
               <Route path="/add" element={<AddBook />} />
               <Route path="/update/:id" element={<UpdateBook />} />
+              <Route path="/tidy-up" element={<TidyUp />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

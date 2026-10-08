@@ -21,7 +21,7 @@ Requirements: Node.js 20 or newer, and a MongoDB database (a free MongoDB Atlas 
      `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
    - `ADMIN_USERNAME`: the login name for the website.
    - `ADMIN_PASSWORD_HASH`: generate it with `npm run hash-password --prefix backend -- "the-password"`.
-   - `GEMINI_API_KEY` (optional): enables book scanning. See [Book scanning](#book-scanning).
+   - `GOOGLE_VERTEX_API_KEY` and/or `GEMINI_API_KEY` (optional): enable book scanning. See [Book scanning](#book-scanning).
 3. **Start both servers** (in two terminals):
    ```sh
    npm run dev:backend    # API on http://localhost:5000
@@ -45,7 +45,7 @@ Set these environment variables in the Render dashboard (never commit them):
 - `JWT_SECRET`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD_HASH`
-- `GEMINI_API_KEY` (for book scanning)
+- `GOOGLE_VERTEX_API_KEY` and `GEMINI_API_KEY` (for book scanning)
 
 In MongoDB Atlas, go to **Network Access** and allow connections from Render. Render's free plan has no fixed IP, so this usually means `0.0.0.0/0`. Because of that, use a strong, unique database password.
 
@@ -60,13 +60,22 @@ All `/api/books` routes require you to be logged in. Login sets an httpOnly sess
 | POST | `/api/auth/logout` | Clears the session. |
 | GET | `/api/books?q=&genre=&sort=&order=&page=&limit=` | Search, filter, sort and paginate. `sort` is one of `name`, `author`, `publisher`, `genre`, `createdAt`. |
 | GET | `/api/books/meta` | Totals, genres with counts, and all authors and publishers (for autocomplete). |
+| GET | `/api/books/values?field=author|publisher|genre` | Each distinct value of that field, with its book count. |
+| POST | `/api/books/bulk-rename` | `{ field, from, to }`: changes `from` to `to` on every book with that exact value, merging if `to` already exists. Publisher can be cleared with `to: ""`. |
+| GET | `/api/books/export/pdf` | Every book as a PDF table (A4 landscape, sorted by title). |
 | GET | `/api/books/:id` | Get one book. |
 | POST | `/api/books` | Add a book: `{ name, author, genre, publisher? }` (publisher is optional). |
 | PUT | `/api/books/:id` | Update any of those fields. |
 | DELETE | `/api/books/:id` | Delete a book. |
+| GET | `/api/scan/usage` | This month's Cloud scans and estimated spend. |
 | POST | `/api/scan` | `{ images: [{ data: <base64>, mimeType }] }` (1–3 photos). Returns the details read from the photos; saves nothing. |
 
 Errors are always JSON in the form `{ message, errors? }`. `errors` maps field names to messages when validation fails.
+
+## Downloading and tidying up
+
+- **Download PDF** (Library page): a printable table of every book with its title, author, publisher, genre and date added. It is built on the server with `pdfkit`, using the bundled Noto Sans Bengali font (`backend/assets/fonts`, SIL Open Font License), so Bangla conjuncts print correctly.
+- **Tidy up** page: rename an author, publisher or genre on all of its books at once. Use it when a publisher changes its name, or to merge two spellings (e.g. "fantasy" and "Fantasy"). Renaming to a name that already exists merges the two groups, and the dialog warns before doing so. There is no undo, so download a PDF first as a record.
 
 ## Book scanning
 
@@ -77,14 +86,24 @@ How it works:
 - The backend (`backend/services/bookScanner.js`) sends the photos to Gemini with your existing authors, publishers and genres. Gemini answers in a fixed JSON format. Names that match an existing entry are returned with your library's spelling.
 - The API key stays on the server and is never sent to the browser.
 
-Setup:
-- Create a key at [Google AI Studio](https://aistudio.google.com) and set `GEMINI_API_KEY` in `backend/.env` (and in Render).
-- Optional: `GEMINI_MODELS` lists the models to try, in order. The default is `gemini-2.5-flash,gemini-3.8-flash,gemini-3.5-flash`. When a model is busy or over its quota, the next one is used.
+Two ways to reach Gemini are supported, tried in this order:
 
-Limits (Gemini API **free tier**):
-- Each model allows a small number of requests per day, e.g. **20 per day for `gemini-2.5-flash`**. Limits reset at midnight US Pacific time. You can see your limits at [AI Studio → Rate limits](https://aistudio.google.com/rate-limit).
-- The newer models are often "busy" on the free tier.
-- For more scans, enable billing on the key's Google Cloud project. Scans then cost a fraction of a US cent each.
+1. **Google Cloud (Agent Platform / Vertex AI)**, using `GOOGLE_VERTEX_API_KEY`. This route is paid per scan, and the cost is covered by the Google Cloud credit. It is reliable and has no daily limit. A scan costs roughly $0.002–0.003, so $8 covers about 3,000 scans.
+2. **Gemini API free tier**, using `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com). It allows about 20 scans per day per model, the newer models are often busy, and limits reset at midnight US Pacific time. It is used as a backup.
+
+**Monthly budget.** The server estimates the cost of every Cloud scan from the token counts Gemini returns, using the prices in `backend/services/scanUsage.js`. It stops using the Cloud key once the month's total reaches `SCAN_MONTHLY_BUDGET_USD` (default **$8**, below the $10 monthly credit). After that it switches to the free tier until the next month. The scan panel on the Add page shows this month's scans and estimated spend. `GET /api/scan/usage` returns the same numbers.
+
+Optional settings:
+- `GEMINI_CLOUD_MODELS`: the Cloud models to try, in order. Default: `gemini-3.8-flash,gemini-2.5-flash,gemini-3.5-flash`.
+- `GEMINI_MODELS`: the free-tier models to try, in order. Default: `gemini-2.5-flash,gemini-3.8-flash,gemini-3.5-flash`.
+
+When a model is busy or over its limit, the next one is used.
+
+**Checking real usage in Google Cloud Console:**
+- **Billing → Credits:** how much of the credit is left.
+- **Billing → Reports:** filter by the Vertex AI service and confirm the cost after credits is $0.
+- **Billing → Budgets & alerts:** email alerts.
+- **APIs & Services → Vertex AI API → Metrics:** request counts and errors.
 
 ## Bangla text
 

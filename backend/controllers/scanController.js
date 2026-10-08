@@ -1,5 +1,6 @@
 import { loadLibraryMeta } from "./bookController.js";
-import { scanBook } from "../services/bookScanner.js";
+import { scanBook, scanningStatus } from "../services/bookScanner.js";
+import { getMonthUsage } from "../services/scanUsage.js";
 import { HttpError } from "../utils/httpError.js";
 
 const MAX_IMAGES = 3;
@@ -29,4 +30,11 @@ export const scan = async (req, res) => {
     genres: meta.genres.map((g) => g.name),
   });
   res.json(result);
+};
+
+// GET /api/scan/usage
+// Which scanning routes are configured, and this month's paid (Cloud) usage as estimated
+// from the token counts Gemini reports.
+export const usage = async (req, res) => {
+  res.json({ ...scanningStatus(), ...(await getMonthUsage()) });
 };

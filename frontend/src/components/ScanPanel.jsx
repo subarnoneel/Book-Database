@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, Loader2, RotateCcw, ScanText, Sparkles, X } from "lucide-react";
-import { getErrorMessage, scanBook } from "../services/api";
+import { fetchScanUsage, getErrorMessage, scanBook } from "../services/api";
 import { prepareImage } from "../utils/image";
 
 const MAX_PHOTOS = 3;
@@ -20,8 +20,16 @@ function ScanPanel({ onResult }) {
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | preparing | reading | done | error
   const [message, setMessage] = useState("");
+  const [usage, setUsage] = useState(null);
   const cameraInput = useRef(null);
   const fileInput = useRef(null);
+
+  const loadUsage = useCallback(() => {
+    fetchScanUsage()
+      .then(({ data }) => setUsage(data))
+      .catch(() => {});
+  }, []);
+  useEffect(loadUsage, [loadUsage]);
 
   const read = async (list) => {
     setStatus("reading");
@@ -41,6 +49,8 @@ function ScanPanel({ onResult }) {
     } catch (err) {
       setStatus("error");
       setMessage(getErrorMessage(err, "Could not read the photo. Please try again."));
+    } finally {
+      loadUsage();
     }
   };
 
@@ -156,6 +166,8 @@ function ScanPanel({ onResult }) {
           </div>
         )}
 
+        {usage && <UsageLine usage={usage} />}
+
         <input
           ref={cameraInput}
           type="file"
@@ -181,6 +193,20 @@ function ScanPanel({ onResult }) {
       </div>
     </section>
   );
+}
+
+// This month's paid scanning, so the family can see how much of the Cloud credit is used.
+function UsageLine({ usage }) {
+  const money = (n) => (n > 0 && n < 0.01 ? "under $0.01" : `$${n.toFixed(2)}`);
+  let text;
+  if (usage.cloudEnabled && !usage.budgetReached) {
+    text = `This month: ${usage.scans} scan${usage.scans === 1 ? "" : "s"} · ${money(usage.costUsd)} of the ${money(usage.budgetUsd)} scanning budget used (estimate).`;
+  } else if (usage.cloudEnabled) {
+    text = `This month's ${money(usage.budgetUsd)} scanning budget is used up${usage.freeEnabled ? ", so free daily scans (about 20 a day) are used until next month." : "."}`;
+  } else {
+    text = "Using free scans: about 20 a day.";
+  }
+  return <p className="border-t border-paper-line pt-3 text-xs text-ink-muted">{text}</p>;
 }
 
 export default ScanPanel;

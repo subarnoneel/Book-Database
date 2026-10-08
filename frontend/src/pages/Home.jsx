@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BookPlus, LayoutGrid, List, Plus, Search, SearchX, X } from "lucide-react";
+import { BookPlus, FileDown, LayoutGrid, List, Loader2, Plus, Search, SearchX, X } from "lucide-react";
 import BookCard, { BookCardSkeleton } from "../components/BookCard";
 import BookTable from "../components/BookTable";
 import EmptyState from "../components/EmptyState";
 import Pagination from "../components/Pagination";
 import useDeleteBook from "../hooks/useDeleteBook";
 import useLibraryMeta from "../hooks/useLibraryMeta";
+import usePdfDownload from "../hooks/usePdfDownload";
 import { fetchBooks, getErrorMessage } from "../services/api";
 import { plural } from "../utils/format";
 
@@ -52,6 +53,7 @@ function Home() {
   const [reloadKey, setReloadKey] = useState(0);
   const [view, setView] = useState(readView);
   const meta = useLibraryMeta(reloadKey);
+  const pdf = usePdfDownload();
   const { requestDelete, dialog } = useDeleteBook({ onDeleted: () => setReloadKey((k) => k + 1) });
 
   const updateParams = useCallback(
@@ -160,18 +162,36 @@ function Home() {
   return (
     <>
       {/* Heading */}
-      <section className="mb-6 sm:mb-8">
-        <h1 className="text-3xl font-bold text-brand-900 sm:text-4xl">Our Library</h1>
-        <p className="mt-2 text-ink-soft">
-          {meta.totalBooks > 0 ? (
-            <>
-              {plural(meta.totalBooks, "book")} · {plural(meta.authors.length, "author")} ·{" "}
-              {plural(meta.genres.length, "genre")}
-            </>
-          ) : (
-            <span className="invisible">…</span>
-          )}
-        </p>
+      <section className="mb-6 flex flex-wrap items-end justify-between gap-4 sm:mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-brand-900 sm:text-4xl">Our Library</h1>
+          <p className="mt-2 text-ink-soft">
+            {meta.totalBooks > 0 ? (
+              <>
+                {plural(meta.totalBooks, "book")} · {plural(meta.authors.length, "author")} ·{" "}
+                {plural(meta.genres.length, "genre")}
+              </>
+            ) : (
+              <span className="invisible">…</span>
+            )}
+          </p>
+        </div>
+        {meta.totalBooks > 0 && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={pdf.download}
+            disabled={pdf.downloading}
+            title="Download every book as a PDF"
+          >
+            {pdf.downloading ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <FileDown className="h-4 w-4" aria-hidden />
+            )}
+            {pdf.downloading ? "Preparing PDF…" : "Download PDF"}
+          </button>
+        )}
       </section>
 
       {/* Search + controls */}

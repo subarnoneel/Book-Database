@@ -40,9 +40,20 @@ export const updateBook = (id, book) => API.put(`/books/${id}`, book);
 
 export const deleteBook = (id) => API.delete(`/books/${id}`);
 
+// The whole library as a PDF file (a Blob).
+export const downloadBooksPdf = () => API.get("/books/export/pdf", { responseType: "blob", timeout: 120_000 });
+
+// Distinct values of "author" | "publisher" | "genre" with their book counts.
+export const fetchFieldValues = (field) => API.get("/books/values", { params: { field } });
+
+// Renames a value on every book that has it: { field, from, to }.
+export const bulkRename = (payload) => API.post("/books/bulk-rename", payload);
+
 // Reads book details from photos. `images` is [{ data: base64, mimeType }].
 // The AI can take a while, so this call gets a longer timeout.
 export const scanBook = (images) => API.post("/scan", { images }, { timeout: 120_000 });
+
+export const fetchScanUsage = () => API.get("/scan/usage");
 
 // Auth
 export const login = (credentials) => API.post("/auth/login", credentials);

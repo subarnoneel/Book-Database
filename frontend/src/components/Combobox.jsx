@@ -6,7 +6,9 @@ const normalize = (text) => text.normalize("NFC").toLowerCase().trim();
 // Text input with a suggestion dropdown. The user can pick an existing value or type a
 // new one. Replaces <datalist>, whose dropdown hides entries that don't match (or equal)
 // the current text and so often looks empty.
-function Combobox({ id, value, onChange, options, placeholder, emptyText, className = "", ...inputProps }) {
+// `inlineList` makes the suggestions push the content below down instead of floating over
+// it, e.g. inside a dialog where a floating list would cover the dialog's buttons.
+function Combobox({ id, value, onChange, options, placeholder, emptyText, className = "", inlineList = false, ...inputProps }) {
   const [open, setOpen] = useState(false);
   // What the list is filtered by: the typed text, or "" (show everything) when the
   // list is opened with the arrow button.
@@ -73,7 +75,9 @@ function Combobox({ id, value, onChange, options, placeholder, emptyText, classN
           openList(e.target.value);
         }}
         onKeyDown={handleKeyDown}
-        onBlur={() => setOpen(false)}
+        // An inline list stays put when focus moves on, so clicking a button below it
+        // doesn't shift the layout mid-click.
+        onBlur={() => !inlineList && setOpen(false)}
       />
       <button
         type="button"
@@ -91,7 +95,9 @@ function Combobox({ id, value, onChange, options, placeholder, emptyText, classN
       </button>
 
       {open && (
-        <div className="absolute inset-x-0 top-full z-20 mt-1 animate-fade-in overflow-hidden rounded-lg border border-paper-line bg-white shadow-lift">
+        <div
+          className={`${inlineList ? "relative" : "absolute inset-x-0 top-full z-20 shadow-lift"} mt-1 animate-fade-in overflow-hidden rounded-lg border border-paper-line bg-white`}
+        >
           {matches.length > 0 ? (
             <ul ref={listRef} id={listId} role="listbox" className="max-h-60 overflow-y-auto py-1">
               {matches.map((option, i) => {

@@ -1,6 +1,6 @@
 import express from "express";
 import { rateLimit } from "express-rate-limit";
-import { scan } from "../controllers/scanController.js";
+import { scan, usage } from "../controllers/scanController.js";
 import { requireAuth } from "../middleware/authMiddleware.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
@@ -23,5 +23,7 @@ router.post(
   express.json({ limit: "16mb" }),
   asyncHandler(scan)
 );
+
+router.get("/usage", requireAuth, asyncHandler(usage));
 
 export default router;

@@ -21,16 +21,19 @@ function AppLayout() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-paper-line bg-paper/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
-          <Link to="/home" className="flex items-center gap-2.5 rounded-lg">
+          <Link to="/home" className="flex items-center gap-2.5 rounded-lg" aria-label={APP_NAME}>
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-700 text-white">
               <LibraryBig className="h-5 w-5" aria-hidden />
             </span>
-            <span className="font-serif text-lg font-bold text-brand-900">{APP_NAME}</span>
+            <span className="hidden font-serif text-lg font-bold text-brand-900 sm:inline">{APP_NAME}</span>
           </Link>
 
-          <nav className="ml-4 hidden items-center gap-1 sm:flex">
+          <nav className="flex items-center gap-1 sm:ml-4">
             <NavLink to="/home" className={navClass}>
               Library
+            </NavLink>
+            <NavLink to="/tidy-up" className={navClass}>
+              Tidy up
             </NavLink>
           </nav>
 

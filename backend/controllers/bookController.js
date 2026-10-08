@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 import Book, { EDITABLE_FIELDS } from "../models/Book.js";
 import { normalizeText, escapeRegex } from "../utils/text.js";
 import { HttpError } from "../utils/httpError.js";
+import { writeBooksPdf } from "../services/pdfExport.js";
 
 const SORTABLE_FIELDS = ["name", "author", "publisher", "genre", "createdAt"];
 const MAX_LIMIT = 100;
 // Bangla collation sorts Bangla text in alphabetical order; English still sorts A–Z.
-const COLLATION = { locale: "bn", strength: 1 };
+// numericOrdering puts "Part 2" before "Part 10".
+const COLLATION = { locale: "bn", strength: 1, numericOrdering: true };
 
 const toPositiveInt = (value, fallback) => {
   const n = Number.parseInt(value, 10);
@@ -72,7 +74,7 @@ export const loadLibraryMeta = async () => {
     Book.distinct("author"),
     Book.distinct("publisher"),
   ]);
-  const collator = new Intl.Collator("bn");
+  const collator = new Intl.Collator("bn", { numeric: true });
   const sortNames = (names) => names.filter(Boolean).sort(collator.compare);
 
   return {
@@ -121,4 +123,59 @@ export const deleteBook = async (req, res) => {
   const book = await Book.findByIdAndDelete(req.params.id);
   if (!book) throw new HttpError(404, "Book not found");
   res.json({ message: "Book deleted successfully" });
+};
+
+// GET /api/books/export/pdf
+// Every book as a printable PDF table, sorted by title (Bangla alphabetical order).
+export const exportPdf = async (req, res) => {
+  const books = await Book.find().collation(COLLATION).sort({ name: 1, _id: 1 }).lean();
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="home-library-${date}.pdf"`);
+  writeBooksPdf(books, res, { title: "Home Library: Book list" });
+};
+
+// Fields that can be renamed in bulk.
+const RENAMABLE_FIELDS = ["author", "publisher", "genre"];
+
+const assertRenamableField = (field) => {
+  if (!RENAMABLE_FIELDS.includes(field)) {
+    throw new HttpError(400, "Field must be one of: author, publisher, genre");
+  }
+};
+
+// GET /api/books/values?field=author|publisher|genre
+// Each distinct value of a field with its number of books.
+export const getFieldValues = async (req, res) => {
+  const { field } = req.query;
+  assertRenamableField(field);
+  const groups = await Book.aggregate([{ $group: { _id: `$${field}`, count: { $sum: 1 } } }]);
+  const collator = new Intl.Collator("bn", { numeric: true });
+  res.json(
+    groups
+      .filter((g) => g._id)
+      .map((g) => ({ value: g._id, count: g.count }))
+      .sort((a, b) => collator.compare(a.value, b.value))
+  );
+};
+
+// POST /api/books/bulk-rename  { field, from, to }
+// Changes `from` to `to` on every book with exactly that value. If `to` is already used
+// by other books, the two groups merge. Publisher may be cleared (to = "").
+export const bulkRename = async (req, res) => {
+  const { field } = req.body ?? {};
+  assertRenamableField(field);
+  const from = typeof req.body.from === "string" ? normalizeText(req.body.from) : "";
+  const to = typeof req.body.to === "string" ? normalizeText(req.body.to) : "";
+
+  if (!from) throw new HttpError(400, `Choose the ${field} to rename`);
+  if (!to && field !== "publisher") throw new HttpError(400, `The new ${field} cannot be empty`);
+  if (from === to) throw new HttpError(400, `The new ${field} is the same as the current one`);
+
+  const matched = await Book.countDocuments({ [field]: from });
+  if (matched === 0) throw new HttpError(404, `No books have the ${field} "${from}"`);
+  const mergedWith = to ? await Book.countDocuments({ [field]: to }) : 0;
+
+  const result = await Book.updateMany({ [field]: from }, { $set: { [field]: to } });
+  res.json({ field, from, to, modified: result.modifiedCount, mergedWith });
 };

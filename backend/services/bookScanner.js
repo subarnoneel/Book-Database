@@ -1,12 +1,35 @@
 import { GoogleGenAI } from "@google/genai";
 import { HttpError } from "../utils/httpError.js";
 import { normalizeText } from "../utils/text.js";
+import { getMonthUsage, recordCloudScan } from "./scanUsage.js";
 
-// Tried in order; a busy (HTTP 503), rate-limited or missing model falls through to the
-// next. gemini-2.5-flash comes first: on the free tier it has been the most reliably
-// available and read Bangla accurately in testing, while the newer Flash models were
-// often busy. Override with GEMINI_MODELS.
-const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash"];
+// Two ways to reach Gemini, tried in this order:
+// - "cloud": Google Cloud (Agent Platform / Vertex AI) with GOOGLE_VERTEX_API_KEY. Paid per
+//   scan from the Google Cloud credit, reliable, no daily limit. Used until this month's
+//   estimated spend reaches SCAN_MONTHLY_BUDGET_USD (see scanUsage.js).
+// - "free": the Gemini API free tier with GEMINI_API_KEY. About 20 scans a day per model,
+//   and the newer models are often busy.
+// Within each, models are tried in order; a busy (503), rate-limited or missing model
+// falls through to the next. gemini-3.8-flash leads on Cloud: it read Bangla most
+// accurately in testing and is cheap. On the free tier gemini-2.5-flash was the most
+// reliably available.
+const listFromEnv = (name, fallback) => {
+  const configured = (process.env[name] || "").split(",").map((m) => m.trim()).filter(Boolean);
+  return configured.length ? configured : fallback;
+};
+
+const BACKENDS = {
+  cloud: {
+    apiKey: () => process.env.GOOGLE_VERTEX_API_KEY,
+    vertexai: true,
+    models: () => listFromEnv("GEMINI_CLOUD_MODELS", ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.5-flash"]),
+  },
+  free: {
+    apiKey: () => process.env.GEMINI_API_KEY,
+    vertexai: false,
+    models: () => listFromEnv("GEMINI_MODELS", ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash"]),
+  },
+};
 const RETRYABLE = new Set([429, 500, 503, 504]);
 
 const CONFIDENCE = { type: "string", enum: ["high", "medium", "low"] };
@@ -55,28 +78,26 @@ EXISTING GENRES: ${JSON.stringify(genres)}`;
 const REQUEST_TIMEOUT_MS = 40_000;
 const BUSY_COOLDOWN_MS = 10 * 60 * 1000;
 
-let client = null;
-const getClient = () => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new HttpError(503, "Book scanning is not set up: GEMINI_API_KEY is missing on the server.");
-  }
+const clients = {};
+const getClient = (backend) => {
   // SDK retries are off (attempts: 1): on a busy model it is faster to move to the next one.
-  client ??= new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
+  clients[backend] ??= new GoogleGenAI({
+    apiKey: BACKENDS[backend].apiKey(),
+    vertexai: BACKENDS[backend].vertexai,
     httpOptions: { timeout: REQUEST_TIMEOUT_MS, retryOptions: { attempts: 1 } },
   });
-  return client;
+  return clients[backend];
 };
 
-const modelList = () => {
-  const configured = (process.env.GEMINI_MODELS || "").split(",").map((m) => m.trim()).filter(Boolean);
-  return configured.length ? configured : DEFAULT_MODELS;
-};
+export const scanningStatus = () => ({
+  cloudEnabled: Boolean(BACKENDS.cloud.apiKey()),
+  freeEnabled: Boolean(BACKENDS.free.apiKey()),
+});
 
-// Models that recently answered "busy" or "not found", with when to try them again,
-// so later scans don't wait on them.
+// "backend:model" pairs that recently answered "busy" or "not found", with when to try
+// them again, so later scans don't wait on them.
 const unavailableUntil = new Map();
-const isCoolingDown = (model) => (unavailableUntil.get(model) ?? 0) > Date.now();
+const isCoolingDown = (key) => (unavailableUntil.get(key) ?? 0) > Date.now();
 
 // Busy, rate-limited, retired (404) or timed out (no status): worth trying another model.
 const isBusy = (err) => err.status === undefined || RETRYABLE.has(err.status) || err.status === 404;
@@ -104,14 +125,27 @@ const snapToExisting = (value, existing) => {
  * @param {{ authors: string[], publishers: string[], genres: string[] }} library existing names
  */
 export async function scanBook(images, library) {
-  const ai = getClient();
+  const { cloudEnabled, freeEnabled } = scanningStatus();
+  if (!cloudEnabled && !freeEnabled) {
+    throw new HttpError(503, "Book scanning is not set up: no Gemini API key on the server.");
+  }
+  const budgetReached = cloudEnabled && (await getMonthUsage()).budgetReached;
+
+  // Every backend/model pair to try, in order.
+  const attempts = [];
+  if (cloudEnabled && !budgetReached) attempts.push(...BACKENDS.cloud.models().map((model) => ({ backend: "cloud", model })));
+  if (freeEnabled) attempts.push(...BACKENDS.free.models().map((model) => ({ backend: "free", model })));
+  if (attempts.length === 0) {
+    throw new HttpError(429, "This month's scanning budget has been used up. Scanning will work again next month.");
+  }
+
   const contents = [
     ...images.map((img) => ({ inlineData: { data: img.data, mimeType: img.mimeType } })),
     { text: buildPrompt(library) },
   ];
 
-  const tryModel = async (model) => {
-    const response = await ai.models.generateContent({
+  const tryModel = async ({ backend, model }) => {
+    const response = await getClient(backend).models.generateContent({
       model,
       contents,
       config: {
@@ -120,6 +154,8 @@ export async function scanBook(images, library) {
         temperature: 0,
       },
     });
+    // Paid Cloud scans count towards the monthly budget, even if the answer turns out unusable.
+    if (backend === "cloud") await recordCloudScan(model, response.usageMetadata);
     const text = response.text;
     if (!text) throw new HttpError(422, "The AI could not read this photo. Try a clearer photo.");
 
@@ -133,48 +169,55 @@ export async function scanBook(images, library) {
       confidence: raw.confidence ?? {},
       notes: normalizeText(raw.notes ?? ""),
       model: response.modelVersion ?? model,
+      via: backend,
     };
   };
 
-  // First pass skips models that were busy recently; if every model fails, one more
-  // pass over all of them after a short pause.
   let lastError;
   let sawDailyQuota = false;
   const started = Date.now();
   const skipped = [];
-  scanning: for (const pass of [1, 2]) {
-    const models = pass === 1 ? modelList().filter((m) => !isCoolingDown(m)) : modelList();
-    for (const model of models) {
+  // First pass skips pairs that were busy recently; if every pair fails, one more pass
+  // over all of them after a short pause.
+  const brokenBackends = new Set(); // e.g. invalid key: its other models won't help either
+  for (const pass of [1, 2]) {
+    for (const attempt of attempts) {
+      const key = `${attempt.backend}:${attempt.model}`;
+      if (brokenBackends.has(attempt.backend) || (pass === 1 && isCoolingDown(key))) continue;
       try {
-        const result = await tryModel(model);
+        const result = await tryModel(attempt);
         const note = skipped.length ? ` (unavailable: ${skipped.join(", ")})` : "";
-        console.log(`Scan read by ${model} in ${((Date.now() - started) / 1000).toFixed(1)}s${note}`);
+        console.log(`Scan read by ${key} in ${((Date.now() - started) / 1000).toFixed(1)}s${note}`);
         return result;
       } catch (err) {
         if (err instanceof HttpError) throw err;
         lastError = err;
-        skipped.push(`${model} ${err.status ?? "timeout"}`);
+        skipped.push(`${key} ${err.status ?? "timeout"}`);
         if (isDailyQuota(err)) sawDailyQuota = true;
-        if (isBusy(err)) unavailableUntil.set(model, Date.now() + (isDailyQuota(err) ? DAILY_COOLDOWN_MS : BUSY_COOLDOWN_MS));
-        else if (!(err instanceof SyntaxError)) break scanning; // e.g. invalid key: other models won't help
+        if (isBusy(err)) unavailableUntil.set(key, Date.now() + (isDailyQuota(err) ? DAILY_COOLDOWN_MS : BUSY_COOLDOWN_MS));
+        else if (!(err instanceof SyntaxError)) brokenBackends.add(attempt.backend);
       }
     }
-    if (pass === 1) await sleep(2000);
+    if (pass === 2 || attempts.every((a) => brokenBackends.has(a.backend))) break;
+    await sleep(2000);
   }
 
   console.error(`Scan failed after ${((Date.now() - started) / 1000).toFixed(1)}s (tried: ${skipped.join(", ")})`);
   if (sawDailyQuota) {
+    const lead = budgetReached
+      ? "This month's scanning budget is used up, and so are today's free scans. "
+      : "Today's free scanning limit has been used up. ";
     throw new HttpError(
       429,
-      "Today's free scanning limit has been used up. It resets every day at midnight US Pacific time " +
-        "(early afternoon in Bangladesh). You can still add books by typing."
+      lead +
+        "Free scans reset every day at midnight US Pacific time (early afternoon in Bangladesh). You can still add books by typing."
     );
   }
   if (lastError?.status === 429) {
     throw new HttpError(429, "Too many scans in a short time. Please wait a minute and try again.");
   }
   if (lastError?.status === 400 || lastError?.status === 403) {
-    throw new HttpError(502, "Google rejected the scan request. Check that GEMINI_API_KEY is valid.");
+    throw new HttpError(502, "Google rejected the scan request. Check the Gemini API keys on the server.");
   }
   throw new HttpError(503, "Google's AI service is busy right now. Please try again in a minute.");
 }
