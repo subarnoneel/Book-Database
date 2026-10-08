@@ -62,10 +62,11 @@ All `/api/books` routes require you to be logged in. Login sets an httpOnly sess
 | GET | `/api/books/meta` | Totals, genres with counts, and all authors and publishers (for autocomplete). |
 | GET | `/api/books/values?field=author|publisher|genre` | Each distinct value of that field, with its book count. |
 | POST | `/api/books/bulk-rename` | `{ field, from, to }`: changes `from` to `to` on every book with that exact value, merging if `to` already exists. Publisher can be cleared with `to: ""`. |
+| GET | `/api/books/duplicates?name=&author=&alt=&excludeId=` | Books that may be the same as the given title/author (see [Duplicate detection](#duplicate-detection)). |
 | GET | `/api/books/export/pdf` | Every book as a PDF table (A4 landscape, sorted by title). |
 | GET | `/api/books/:id` | Get one book. |
-| POST | `/api/books` | Add a book: `{ name, author, genre, publisher? }` (publisher is optional). |
-| PUT | `/api/books/:id` | Update any of those fields. |
+| POST | `/api/books` | Add a book: `{ name, author, genre, publisher? }` (publisher is optional). Answers **409** with `duplicates` if it looks like a book already in the library, unless `allowDuplicate: true` is sent. |
+| PUT | `/api/books/:id` | Update any of those fields. The same duplicate check applies when the title or author changes. |
 | DELETE | `/api/books/:id` | Delete a book. |
 | GET | `/api/scan/usage` | This month's Cloud scans and estimated spend. |
 | POST | `/api/scan` | `{ images: [{ data: <base64>, mimeType }] }` (1–3 photos). Returns the details read from the photos; saves nothing. |
@@ -76,6 +77,22 @@ Errors are always JSON in the form `{ message, errors? }`. `errors` maps field n
 
 - **Download PDF** (Library page): a printable table of every book with its title, author, publisher, genre and date added. It is built on the server with `pdfkit`, using the bundled Noto Sans Bengali font (`backend/assets/fonts`, SIL Open Font License), so Bangla conjuncts print correctly.
 - **Tidy up** page: rename an author, publisher or genre on all of its books at once. Use it when a publisher changes its name, or to merge two spellings (e.g. "fantasy" and "Fantasy"). Renaming to a name that already exists merges the two groups, and the dialog warns before doing so. There is no undo, so download a PDF first as a record.
+
+## Duplicate detection
+
+While a book is being added or edited, the form checks the library for the same book, both as you type and right after a photo scan fills the form. Matches appear under the Title field. Saving a likely duplicate asks **"Add anyway?"**, since a second copy or another edition is sometimes intended. The server enforces the same check, so a book can't slip through by saving too quickly.
+
+Matching (`backend/services/duplicateFinder.js`):
+- **Normalising.** Titles are compared ignoring case, spaces, punctuation and a leading "the/a/an". Bangla digits count as numbers.
+- **Bangla spelling variants.** These are treated as the same: ি/ী, ু/ূ, শ/ষ/স, ণ/ন, য়/য, ড়/ঢ়/র, chandrabindu, and composed/decomposed letters.
+- **What counts as a duplicate:**
+  - *Duplicate*: the same title and author.
+  - *Likely*: a typo or an added subtitle, with the same author. Titles that differ only by a number ("Class 7" vs "Class 8") are never flagged.
+- **Series volumes** are recognised: "খণ্ড ২", "২য় খণ্ড", "দ্বিতীয় খণ্ড", "Vol. 2", "Part II" and a trailing number all mean volume 2. A different volume of the same series is shown as information ("you also have volumes 1 and 3"), not as a duplicate.
+- **Other script.** Bangla vs English spellings of the same title ("Pather Panchali" vs পথের পাঁচালী) are matched through a rough transliteration. When a book is scanned, Gemini also returns the work's other known titles (e.g. its translated title), which are checked too.
+- **Same title, different author** is shown as a note only. One-word generic titles ("কবিতা") by different authors are ignored.
+
+Run the matcher's tests with `npm test --prefix backend`.
 
 ## Book scanning
 

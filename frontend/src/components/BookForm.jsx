@@ -3,8 +3,11 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Check } from "lucide-react";
 import BookCover from "./BookCover";
 import Combobox from "./Combobox";
+import ConfirmDialog from "./ConfirmDialog";
+import DuplicateNotice from "./DuplicateNotice";
 import ScanPanel from "./ScanPanel";
 import { useToast } from "../context/ToastContext";
+import useDuplicateCheck from "../hooks/useDuplicateCheck";
 import useLibraryMeta from "../hooks/useLibraryMeta";
 import { getErrorMessage } from "../services/api";
 
@@ -50,6 +53,10 @@ function BookForm({ mode, initialValues, onSubmit }) {
   const [scanFlags, setScanFlags] = useState({});
   // Changing the key resets the scan panel (clears its photos) for the next book.
   const [scanKey, setScanKey] = useState(0);
+  // Other titles of the scanned book (e.g. its English spelling), used to spot duplicates.
+  const [alternates, setAlternates] = useState([]);
+  // Set while asking "add anyway?": { addAnother, matches }.
+  const [confirmDuplicate, setConfirmDuplicate] = useState(null);
   const titleRef = useRef(null);
   const meta = useLibraryMeta();
   const toast = useToast();
@@ -59,6 +66,16 @@ function BookForm({ mode, initialValues, onSubmit }) {
   // Where to go after saving or cancelling: the details page or the list view the user came from.
   const listSearch = location.state?.listSearch ?? "";
   const returnTo = location.state?.returnTo ?? `/home${listSearch}`;
+
+  const duplicates = useDuplicateCheck({
+    name: book.name,
+    author: book.author,
+    alternates,
+    excludeId: isEdit ? initialValues?._id : undefined,
+  });
+  // When editing, only a changed title/author can create a new duplicate.
+  const titleOrAuthorChanged =
+    !isEdit || book.name !== (initialValues?.name ?? "") || book.author !== (initialValues?.author ?? "");
 
   useEffect(() => {
     if (initialValues) {
@@ -99,21 +116,34 @@ function BookForm({ mode, initialValues, onSubmit }) {
     setError("");
     setKeptForNext(false);
     setScanFlags(flags);
+    setAlternates(result.alternateTitles ?? []);
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     const addAnother = e.nativeEvent.submitter?.value === "another";
+    if (titleOrAuthorChanged && duplicates.blocking.length) {
+      setConfirmDuplicate({ addAnother, matches: duplicates.blocking });
+      return;
+    }
+    save({ addAnother });
+  };
+
+  // `allowDuplicate` is sent after the user confirmed "Add anyway"; otherwise the server
+  // answers 409 for a likely duplicate (e.g. saved before the live check finished).
+  const save = async ({ addAnother, allowDuplicate = false }) => {
     setError("");
     setFieldErrors({});
     setSubmitting(true);
     try {
-      const { data: saved } = await onSubmit(book);
+      const { data: saved } = await onSubmit(allowDuplicate ? { ...book, allowDuplicate: true } : book);
+      setConfirmDuplicate(null);
       if (addAnother) {
         toast.success(`Added "${saved.name}". Ready for the next one.`);
         setBook((prev) => ({ ...EMPTY_BOOK, author: prev.author, publisher: prev.publisher, genre: prev.genre }));
         setKeptForNext(true);
         setScanFlags({});
+        setAlternates([]);
         setScanKey((k) => k + 1);
         setSubmitting(false);
         titleRef.current?.focus();
@@ -123,11 +153,18 @@ function BookForm({ mode, initialValues, onSubmit }) {
       toast.success(isEdit ? "Changes saved" : `Added "${saved.name}"`);
       navigate(isEdit ? returnTo : `/books/${saved._id}`, { state: { listSearch } });
     } catch (err) {
+      setSubmitting(false);
+      if (err.response?.status === 409 && err.response.data?.duplicates?.length) {
+        setConfirmDuplicate({ addAnother, matches: err.response.data.duplicates });
+        return;
+      }
+      setConfirmDuplicate(null);
       setError(getErrorMessage(err));
       setFieldErrors(err.response?.data?.errors ?? {});
-      setSubmitting(false);
     }
   };
+
+  const firstMatch = confirmDuplicate?.matches[0]?.book;
 
   // Publisher is optional: it is often unknown for older books.
   const fieldProps = (name, { required = true } = {}) => ({
@@ -164,7 +201,9 @@ function BookForm({ mode, initialValues, onSubmit }) {
 
       <div className="grid gap-8 lg:grid-cols-[1fr_16rem]">
         <div className="min-w-0 space-y-5">
-        {!isEdit && <ScanPanel key={scanKey} onResult={handleScanResult} />}
+        {!isEdit && (
+          <ScanPanel key={scanKey} onResult={handleScanResult} duplicateWarning={duplicates.blocking.length > 0} />
+        )}
         <form onSubmit={handleSubmit} className="card space-y-5 p-5 sm:p-7">
           {error && (
             <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -187,6 +226,7 @@ function BookForm({ mode, initialValues, onSubmit }) {
               autoFocus={!isEdit && !window.matchMedia?.("(pointer: coarse)").matches}
               className={`${fieldProps("name").className} text-lg`}
             />
+            {titleOrAuthorChanged && <DuplicateNotice matches={duplicates.matches} />}
           </Field>
 
           <div className="grid gap-5 sm:grid-cols-2">
@@ -256,6 +296,22 @@ function BookForm({ mode, initialValues, onSubmit }) {
           </div>
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(confirmDuplicate)}
+        danger={false}
+        title={isEdit ? "Save anyway?" : "Add this book anyway?"}
+        message={
+          firstMatch
+            ? `"${book.name}" looks like "${firstMatch.name}"${firstMatch.author ? ` by ${firstMatch.author}` : ""}, which is already in your library. Continue only if it's a different book, another edition or a second copy.`
+            : ""
+        }
+        confirmLabel={isEdit ? "Save anyway" : "Add anyway"}
+        busy={submitting}
+        busyLabel="Saving…"
+        onConfirm={() => save({ addAnother: confirmDuplicate.addAnother, allowDuplicate: true })}
+        onCancel={() => setConfirmDuplicate(null)}
+      />
     </>
   );
 }

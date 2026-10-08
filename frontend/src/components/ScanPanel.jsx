@@ -16,7 +16,7 @@ const hasCamera = () => {
 
 // Take or pick up to 3 photos of one book (cover, title page, spine); the server's AI
 // reads them and `onResult` receives { found, title, author, publisher, genre, confidence, notes }.
-function ScanPanel({ onResult }) {
+function ScanPanel({ onResult, duplicateWarning = false }) {
   const [photos, setPhotos] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | preparing | reading | done | error
   const [message, setMessage] = useState("");
@@ -152,6 +152,11 @@ function ScanPanel({ onResult }) {
               Filled in from the photo. Please check the details below, especially anything marked
               <span className="mx-1 rounded bg-amber-100 px-1.5 text-amber-800">Check</span>, then save.
               {message && <p className="mt-1 text-brand-700">Note: {message}</p>}
+              {duplicateWarning && (
+                <p className="mt-1 font-semibold text-amber-800">
+                  Looks like this book is already in your library. See the warning below the title.
+                </p>
+              )}
             </div>
           </div>
         )}

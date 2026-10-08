@@ -40,6 +40,11 @@ export const updateBook = (id, book) => API.put(`/books/${id}`, book);
 
 export const deleteBook = (id) => API.delete(`/books/${id}`);
 
+// Books that may be the same as { name, author } (see backend duplicateFinder.js).
+// `alternates`: other titles of the work from a photo scan; `excludeId`: the book being edited.
+export const findDuplicates = ({ name, author, alternates = [], excludeId }, config) =>
+  API.get("/books/duplicates", { params: { name, author, alt: alternates, excludeId }, ...config });
+
 // The whole library as a PDF file (a Blob).
 export const downloadBooksPdf = () => API.get("/books/export/pdf", { responseType: "blob", timeout: 120_000 });
 

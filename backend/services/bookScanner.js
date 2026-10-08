@@ -49,8 +49,13 @@ const RESPONSE_SCHEMA = {
       required: ["title", "author", "publisher", "genre"],
     },
     notes: { type: "string", description: "Short note for the user if something was hard to read; otherwise empty" },
+    alternateTitles: {
+      type: "array",
+      items: { type: "string" },
+      description: "Other well-known titles of the same work (transliteration, translation); empty if unknown",
+    },
   },
-  required: ["found", "title", "author", "publisher", "genre", "confidence", "notes"],
+  required: ["found", "title", "author", "publisher", "genre", "confidence", "notes", "alternateTitles"],
 };
 
 const buildPrompt = ({ authors, publishers, genres }) => `You are reading photos of one book from a family's home library in Bangladesh.
@@ -63,6 +68,7 @@ Extract:
 - For English text printed in ALL CAPITALS, return normal capitalisation (e.g. "ERNEST HEMINGWAY" -> "Ernest Hemingway").
 - publisher: the publishing house name only (no address, no "প্রকাশক:" label). It is often a logo or small text at the bottom of the cover, spine or title page. Use "" if it is not visible.
 - genre: one short genre for the book. Prefer one from EXISTING GENRES; otherwise a short genre in the same language as the title.
+- alternateTitles: only if you actually know this book, up to 3 other titles the same work is commonly known by: its romanised spelling (e.g. "পথের পাঁচালী" -> "Pather Panchali"), its Bangla spelling for an English title, or a well-known translated title (e.g. "গীতাঞ্জলি" -> "Gitanjali", "Song Offerings"). Use [] if you don't know the book. These are used to spot books already in the library, so never guess.
 
 Rules:
 - Copy text exactly as printed, in its original script. Never translate or transliterate (Bangla stays Bangla, English stays English).
@@ -168,6 +174,10 @@ export async function scanBook(images, library) {
       genre: snapToExisting(normalizeText(raw.genre ?? ""), library.genres),
       confidence: raw.confidence ?? {},
       notes: normalizeText(raw.notes ?? ""),
+      alternateTitles: (Array.isArray(raw.alternateTitles) ? raw.alternateTitles : [])
+        .map((t) => normalizeText(String(t)))
+        .filter(Boolean)
+        .slice(0, 3),
       model: response.modelVersion ?? model,
       via: backend,
     };

@@ -3,6 +3,7 @@ import Book, { EDITABLE_FIELDS } from "../models/Book.js";
 import { normalizeText, escapeRegex } from "../utils/text.js";
 import { HttpError } from "../utils/httpError.js";
 import { writeBooksPdf } from "../services/pdfExport.js";
+import { BLOCKING_KINDS, findDuplicates } from "../services/duplicateFinder.js";
 
 const SORTABLE_FIELDS = ["name", "author", "publisher", "genre", "createdAt"];
 const MAX_LIMIT = 100;
@@ -101,8 +102,40 @@ export const getBookById = async (req, res) => {
 };
 
 // POST /api/books
+// Possible duplicates of a title/author among all books (see duplicateFinder.js).
+const duplicatesFor = async (input) => {
+  const books = await Book.find({}, "name author publisher genre").lean();
+  return findDuplicates(input, books).map(({ book, kind, reason }) => ({ book, kind, reason }));
+};
+
+// Saving a likely duplicate needs explicit confirmation (`allowDuplicate: true`) from the
+// client, which shows the matches and an "Add anyway" button on 409.
+const assertNotDuplicate = async ({ name, author, excludeId, allowDuplicate }) => {
+  if (allowDuplicate === true || !name) return;
+  const duplicates = (await duplicatesFor({ name, author, excludeId })).filter((m) => BLOCKING_KINDS.has(m.kind));
+  if (duplicates.length) {
+    throw new HttpError(409, "This book looks like one that is already in your library", { duplicates });
+  }
+};
+
+// GET /api/books/duplicates?name=&author=&alt=&alt=&excludeId=
+export const getDuplicates = async (req, res) => {
+  const { name, author, excludeId } = req.query;
+  if (typeof name !== "string" || !name.trim()) return res.json({ matches: [] });
+  const alternates = [req.query.alt ?? []].flat().filter((a) => typeof a === "string").slice(0, 5);
+  const matches = await duplicatesFor({
+    name,
+    author: typeof author === "string" ? author : "",
+    alternates,
+    excludeId: typeof excludeId === "string" ? excludeId : null,
+  });
+  res.json({ matches });
+};
+
 export const addBook = async (req, res) => {
-  const book = await Book.create(pickBookFields(req.body));
+  const data = pickBookFields(req.body);
+  await assertNotDuplicate({ ...data, allowDuplicate: req.body?.allowDuplicate });
+  const book = await Book.create(data);
   res.status(201).json(book);
 };
 
@@ -112,7 +145,18 @@ export const updateBook = async (req, res) => {
   const book = await Book.findById(req.params.id);
   if (!book) throw new HttpError(404, "Book not found");
 
-  book.set(pickBookFields(req.body));
+  const data = pickBookFields(req.body);
+  const nameChanged = data.name !== undefined && data.name !== book.name;
+  const authorChanged = data.author !== undefined && data.author !== book.author;
+  if (nameChanged || authorChanged) {
+    await assertNotDuplicate({
+      name: data.name ?? book.name,
+      author: data.author ?? book.author,
+      excludeId: book._id,
+      allowDuplicate: req.body?.allowDuplicate,
+    });
+  }
+  book.set(data);
   await book.save();
   res.json(book);
 };

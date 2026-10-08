@@ -2,7 +2,19 @@ import { useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 
 // Modal confirmation built on <dialog>, which handles focus trapping and Esc for us.
-function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", busy = false, onConfirm, onCancel }) {
+// `danger` (default) styles it for destructive actions such as deleting; set it to false for
+// "are you sure?" questions like adding a possible duplicate.
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Confirm",
+  busy = false,
+  busyLabel = "Deleting…",
+  danger = true,
+  onConfirm,
+  onCancel,
+}) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -27,8 +39,8 @@ function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", busy = 
     >
       <div className="p-6">
         <div className="flex gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-50">
-            <AlertTriangle className="h-5 w-5 text-red-600" aria-hidden />
+          <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${danger ? "bg-red-50" : "bg-amber-50"}`}>
+            <AlertTriangle className={`h-5 w-5 ${danger ? "text-red-600" : "text-amber-600"}`} aria-hidden />
           </div>
           <div>
             <h2 className="text-lg font-semibold">{title}</h2>
@@ -39,8 +51,8 @@ function ConfirmDialog({ open, title, message, confirmLabel = "Confirm", busy = 
           <button type="button" className="btn-secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn-danger" onClick={onConfirm} disabled={busy}>
-            {busy ? "Deleting…" : confirmLabel}
+          <button type="button" className={danger ? "btn-danger" : "btn-primary"} onClick={onConfirm} disabled={busy}>
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>

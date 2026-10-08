@@ -20,8 +20,11 @@ const errorHandler = (err, req, res, next) => {
   }
 
   const status = err.status || err.statusCode || 500;
-  if (status >= 500) console.error(err);
-  res.status(status).json({ message: status >= 500 ? "Something went wrong on the server" : err.message });
+  if (status >= 500) {
+    console.error(err);
+    return res.status(status).json({ message: "Something went wrong on the server" });
+  }
+  res.status(status).json({ message: err.message, ...err.details });
 };
 
 export default errorHandler;
